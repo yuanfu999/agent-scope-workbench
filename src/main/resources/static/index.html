@@ -1,225 +1,798 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AgentScope Workbench 演示</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; color: #333; }
-        .app { max-width: 900px; margin: 0 auto; padding: 20px; }
-        h1 { font-size: 24px; margin-bottom: 8px; color: #1a1a1a; }
-        .subtitle { font-size: 14px; color: #666; margin-bottom: 20px; }
-        .chat-container { background: white; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); overflow: hidden; }
-        .messages { height: 500px; overflow-y: auto; padding: 20px; background: #fafafa; }
-        .message { margin-bottom: 16px; display: flex; flex-direction: column; }
-        .message.user { align-items: flex-end; }
-        .message.assistant { align-items: flex-start; }
-        .bubble { max-width: 75%; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.6; white-space: pre-wrap; }
-        .user .bubble { background: #007aff; color: white; border-bottom-right-radius: 4px; }
-        .assistant .bubble { background: white; border: 1px solid #e0e0e0; border-bottom-left-radius: 4px; }
-        .tool-call { font-size: 12px; color: #888; padding: 4px 0; }
-        .tool-call .name { color: #007aff; font-weight: 600; }
-        .input-area { display: flex; padding: 12px; border-top: 1px solid #e0e0e0; background: white; gap: 8px; }
-        .input-area input { flex: 1; padding: 10px 14px; border: 1px solid #e0e0e0; border-radius: 8px; font-size: 14px; outline: none; }
-        .input-area input:focus { border-color: #007aff; }
-        .input-area button { padding: 10px 20px; background: #007aff; color: white; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; }
-        .input-area button:disabled { background: #ccc; cursor: not-allowed; }
-        .input-area button:hover:not(:disabled) { background: #0056b3; }
-        .status { font-size: 12px; color: #999; padding: 8px 20px; background: white; border-top: 1px solid #f0f0f0; }
-        .tabs { display: flex; gap: 8px; margin-bottom: 12px; }
-        .tab { padding: 6px 14px; border-radius: 16px; font-size: 13px; cursor: pointer; border: 1px solid #e0e0e0; background: white; }
-        .tab.active { background: #007aff; color: white; border-color: #007aff; }
-        .tab.subagent { border-color: #34c759; color: #34c759; }
-        .tab.subagent.active { background: #34c759; color: white; }
-        .hidden { display: none; }
-        .plan-approve { display: flex; gap: 8px; margin-top: 8px; }
-        .plan-approve button { padding: 6px 16px; border-radius: 6px; border: none; font-size: 13px; cursor: pointer; }
-        .btn-approve { background: #34c759; color: white; }
-        .btn-reject { background: #ff3b30; color: white; }
-        .thinking { font-style: italic; color: #888; font-size: 13px; padding: 4px 0; }
-        .cursor::after { content: '|'; animation: blink 1s infinite; }
-        @keyframes blink { 50% { opacity: 0; } }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgentScope Workbench - 演示工作台</title>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --panel: #ffffff;
+    --border: #e2e5ea;
+    --text: #1f2329;
+    --muted: #8a919f;
+    --primary: #4c6ef5;
+    --primary-hover: #3b5bdb;
+    --danger: #e03131;
+    --success: #2f9e44;
+    --warn: #f08c00;
+    --user-bubble: #e7f0ff;
+    --agent-bubble: #ffffff;
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* 顶栏 */
+  header {
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  header h1 { font-size: 16px; font-weight: 600; margin-right: 8px; }
+  header .field {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  header input, header select {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 12px;
+    width: 120px;
+    background: #fff;
+  }
+  header input[type="text"].key { width: 160px; }
+  #status-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--muted); display: inline-block; margin-left: auto;
+  }
+  #status-dot.ok { background: var(--success); }
+  #status-dot.err { background: var(--danger); }
+
+  /* 主体 */
+  main {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+  }
+
+  /* 左：聊天区 */
+  .chat-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .tabs {
+    display: flex;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    padding: 0 12px;
+    overflow-x: auto;
+  }
+  .tab {
+    padding: 10px 14px;
+    font-size: 13px;
+    color: var(--muted);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    white-space: nowrap;
+    user-select: none;
+  }
+  .tab.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
+  .tab .close {
+    margin-left: 6px;
+    color: var(--muted);
+    font-size: 11px;
+  }
+  .tab .close:hover { color: var(--danger); }
+
+  #messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .msg {
+    max-width: 78%;
+    padding: 10px 14px;
+    border-radius: var(--radius);
+    font-size: 14px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+    position: relative;
+  }
+  .msg.user { background: var(--user-bubble); align-self: flex-end; }
+  .msg.agent { background: var(--agent-bubble); border: 1px solid var(--border); align-self: flex-start; }
+  .msg.error { background: #fff0f0; color: var(--danger); border: 1px solid #ffc9c9; }
+  .msg .meta {
+    font-size: 11px; color: var(--muted);
+    display: block; margin-bottom: 4px;
+  }
+
+  /* 工具调用卡片 */
+  .tool-card {
+    align-self: flex-start;
+    width: 78%;
+    background: #fafbfc;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-size: 13px;
+    overflow: hidden;
+  }
+  .tool-card .tool-head {
+    padding: 8px 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .tool-card .tool-head .arrow { transition: transform .15s; color: var(--muted); font-size: 10px; }
+  .tool-card.collapsed .tool-head .arrow { transform: rotate(-90deg); }
+  .tool-card .tool-head .name { font-weight: 600; }
+  .tool-card .tool-head .id { color: var(--muted); font-size: 11px; }
+  .tool-card .tool-head .status { margin-left: auto; font-size: 11px; padding: 2px 8px; border-radius: 20px; }
+  .tool-card .tool-head .status.running { background: #fff3bf; color: var(--warn); }
+  .tool-card .tool-head .status.success { background: #d3f9d8; color: var(--success); }
+  .tool-card .tool-head .status.failed { background: #ffe3e3; color: var(--danger); }
+  .tool-card .tool-body { display: none; padding: 8px 12px; border-top: 1px dashed var(--border); font-size: 12px; color: var(--muted); white-space: pre-wrap; word-break: break-word; }
+  .tool-card:not(.collapsed) .tool-body { display: block; }
+
+  /* 子 Agent 提示条 */
+  .subagent-note {
+    align-self: flex-start;
+    background: #e6fcf5;
+    border: 1px solid #c3fae8;
+    color: #0b7285;
+    border-radius: var(--radius);
+    padding: 8px 12px;
+    font-size: 13px;
+  }
+  .subagent-note button {
+    margin-left: 8px;
+    background: var(--primary);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 3px 10px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  /* 输入区 */
+  .input-bar {
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+    padding: 12px 16px;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
+  .input-bar textarea {
+    flex: 1;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 14px;
+    resize: none;
+    height: 46px;
+    font-family: inherit;
+    outline: none;
+  }
+  .input-bar textarea:focus { border-color: var(--primary); }
+  .input-bar button {
+    background: var(--primary);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 22px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .input-bar button:hover { background: var(--primary-hover); }
+  .input-bar button:disabled { background: var(--border); cursor: not-allowed; }
+
+  /* 右：管理面板 */
+  .side-panel {
+    width: 300px;
+    background: var(--panel);
+    border-left: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .side-panel h2 { font-size: 14px; font-weight: 600; margin-bottom: 10px; }
+  .card {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px;
+  }
+  .card .row { display: flex; justify-content: space-between; align-items: center; font-size: 13px; padding: 4px 0; }
+  .card .row .label { color: var(--muted); }
+  .card .row .value { font-weight: 500; }
+  .card .btn-row { display: flex; gap: 8px; margin-top: 10px; }
+  .btn {
+    border: 1px solid var(--border);
+    background: #fff;
+    border-radius: 6px;
+    padding: 5px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    flex: 1;
+    text-align: center;
+  }
+  .btn:hover { border-color: var(--primary); color: var(--primary); }
+  .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+  .btn.primary:hover { background: var(--primary-hover); }
+  .btn.danger { color: var(--danger); }
+  .btn.danger:hover { border-color: var(--danger); color: var(--danger); }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+
+  #task-list { list-style: none; font-size: 12px; }
+  #task-list li {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 0; border-bottom: 1px dashed var(--border);
+  }
+  #task-list li:last-child { border-bottom: none; }
+  .task-state {
+    font-size: 10px; padding: 1px 8px; border-radius: 20px; flex-shrink: 0;
+  }
+  .task-state.PENDING { background: #fff3bf; color: var(--warn); }
+  .task-state.IN_PROGRESS { background: #d0ebff; color: #1971c2; }
+  .task-state.DONE, .task-state.COMPLETED { background: #d3f9d8; color: var(--success); }
+  .task-state.FAILED, .task-state.CANCELLED { background: #ffe3e3; color: var(--danger); }
+  .task-subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .muted { color: var(--muted); font-size: 12px; }
+  #empty-hint { color: var(--muted); font-size: 13px; text-align: center; margin-top: 60px; }
+  @media (max-width: 900px) {
+    main { flex-direction: column; }
+    .side-panel { width: 100%; max-height: 220px; border-left: none; border-top: 1px solid var(--border); }
+  }
+</style>
 </head>
 <body>
-<div class="app">
-    <h1>AgentScope Workbench</h1>
-    <div class="subtitle">企业级多租户 AI Agent 工作台 · 演示前端</div>
 
+<header>
+  <h1>AgentScope Workbench</h1>
+  <div class="field">租户 <input id="f-tenant" value="tenant1"></div>
+  <div class="field">用户 <input id="f-user" value="user1"></div>
+  <div class="field">Agent
+    <select id="f-agent">
+      <option value="">(默认)</option>
+    </select>
+  </div>
+  <div class="field">会话 <input id="f-session" placeholder="(自动)" style="width:100px"></div>
+  <div class="field">API Key <input type="text" class="key" id="f-key" value="_default"></div>
+  <span id="status-dot" title="服务状态"></span>
+</header>
+
+<main>
+  <div class="chat-area">
     <div class="tabs" id="tabs">
-        <button class="tab active" data-agent="main" onclick="switchTab('main')">主对话</button>
-        <button class="tab subagent hidden" id="subagent-tab" onclick="switchTab('subagent')">子 Agent</button>
+      <div class="tab active" data-subagent="" id="tab-main">主会话</div>
     </div>
+    <div id="messages">
+      <div id="empty-hint">输入消息开始对话。支持 SSE 流式输出、工具调用卡片、子 Agent 直连与 Plan 审批。</div>
+    </div>
+    <div class="input-bar">
+      <textarea id="f-message" placeholder="输入消息，Enter 发送，Shift+Enter 换行"></textarea>
+      <button id="btn-send" onclick="sendMessage()">发送</button>
+    </div>
+  </div>
 
-    <div class="chat-container">
-        <div class="messages" id="messages"></div>
-        <div class="status" id="status">就绪</div>
-        <div class="input-area">
-            <input type="text" id="messageInput" placeholder="输入消息..." onkeydown="if(event.key==='Enter') sendMessage()">
-            <button id="sendBtn" onclick="sendMessage()">发送</button>
+  <div class="side-panel">
+    <div>
+      <h2>Plan Mode</h2>
+      <div class="card">
+        <div class="row"><span class="label">状态</span><span class="value" id="plan-state">-</span></div>
+        <div class="row"><span class="label">当前计划文件</span><span class="value" id="plan-file">-</span></div>
+        <div class="btn-row">
+          <button class="btn primary" id="btn-enter-plan" onclick="enterPlan()">进入</button>
+          <button class="btn danger" id="btn-exit-plan" onclick="exitPlan()">退出</button>
         </div>
+      </div>
     </div>
-</div>
+    <div>
+      <h2>权限模式</h2>
+      <div class="card">
+        <div class="row"><span class="label">当前模式</span><span class="value" id="perm-mode">-</span></div>
+        <div class="btn-row">
+          <select id="f-perm" style="flex:2;border:1px solid var(--border);border-radius:6px;padding:4px">
+            <option value="default">DEFAULT</option>
+            <option value="dont_ask">DONT_ASK</option>
+            <option value="bypass">BYPASS（仅沙箱）</option>
+          </select>
+          <button class="btn primary" onclick="setPermission()">应用</button>
+        </div>
+      </div>
+    </div>
+    <div>
+      <h2>任务列表 <span class="muted" id="task-count"></span></h2>
+      <div class="card"><ul id="task-list"><li class="muted">暂无任务</li></ul></div>
+    </div>
+  </div>
+</main>
 
 <script>
-    let currentTab = 'main';
-    let subagentId = null;
-    let eventSource = null;
+"use strict";
 
-    function addMessage(role, content, extra) {
-        const msgs = document.getElementById('messages');
-        const div = document.createElement('div');
-        div.className = 'message ' + role;
+/* ================= 状态 ================= */
+const state = {
+  tenant: "tenant1",
+  user: "user1",
+  agent: "",
+  session: "",
+  apiKey: "_default",
+  subagent: "",          // 当前 Tab 直连的子 Agent
+  sending: false,
+  tabSeq: 1,
+};
 
-        let html = '<div class="bubble">' + escapeHtml(content) + '</div>';
-        if (extra) {
-            html += '<div class="tool-call">' + extra + '</div>';
-        }
-        div.innerHTML = html;
-        msgs.appendChild(div);
-        msgs.scrollTop = msgs.scrollHeight;
-        return div;
+const els = {
+  tabs: document.getElementById("tabs"),
+  messages: document.getElementById("messages"),
+  send: document.getElementById("btn-send"),
+  input: document.getElementById("f-message"),
+  dot: document.getElementById("status-dot"),
+  planState: document.getElementById("plan-state"),
+  planFile: document.getElementById("plan-file"),
+  permMode: document.getElementById("perm-mode"),
+  taskList: document.getElementById("task-list"),
+  taskCount: document.getElementById("task-count"),
+};
+
+/* ================= 工具函数 ================= */
+function headers() {
+  const h = {
+    "X-Tenant-Id": state.tenant,
+    "X-User-Id": state.user,
+  };
+  if (state.apiKey && state.apiKey !== "_default") {
+    h["X-API-Key"] = state.apiKey;
+  }
+  return h;
+}
+
+function apiUrl(path) {
+  return "/api/v1" + path;
+}
+
+function esc(s) {
+  const div = document.createElement("div");
+  div.textContent = s == null ? "" : String(s);
+  return div.innerHTML;
+}
+
+function addMessage(text, cls, meta) {
+  const el = document.createElement("div");
+  el.className = "msg " + cls;
+  if (meta) {
+    const m = document.createElement("span");
+    m.className = "meta";
+    m.textContent = meta;
+    el.appendChild(m);
+  }
+  el.appendChild(document.createTextNode(text));
+  els.messages.appendChild(el);
+  scrollBottom();
+  return el;
+}
+
+function addTypingBubble() {
+  const el = document.createElement("div");
+  el.className = "msg agent";
+  el.dataset.typing = "1";
+  els.messages.appendChild(el);
+  scrollBottom();
+  return el;
+}
+
+function scrollBottom() {
+  els.messages.scrollTop = els.messages.scrollHeight;
+}
+
+function setSending(sending) {
+  state.sending = sending;
+  els.send.disabled = sending;
+  els.send.textContent = sending ? "对话中..." : "发送";
+}
+
+/* ================= SSE 流式对话 ================= */
+async function sendMessage() {
+  const text = els.input.value.trim();
+  if (!text || state.sending) {
+    return;
+  }
+  // 同步输入框字段
+  state.tenant = document.getElementById("f-tenant").value.trim() || "tenant1";
+  state.user = document.getElementById("f-user").value.trim() || "user1";
+  state.agent = document.getElementById("f-agent").value;
+  state.session = document.getElementById("f-session").value.trim();
+  state.apiKey = document.getElementById("f-key").value.trim() || "_default";
+
+  els.input.value = "";
+  addMessage(text, "user");
+  const bubble = addTypingBubble();
+  const toolCards = new Map();
+
+  const params = new URLSearchParams({ message: text });
+  if (state.session) {
+    params.set("sessionId", state.session);
+  }
+  if (state.agent) {
+    params.set("agentId", state.agent);
+  }
+  if (state.subagent) {
+    params.set("subagentId", state.subagent);
+  }
+
+  const url = apiUrl("/chat/stream?") + params.toString();
+  setSending(true);
+
+  try {
+    const resp = await fetch(url, { headers: headers() });
+    if (!resp.ok) {
+      const body = await resp.text();
+      throw new Error("HTTP " + resp.status + ": " + body);
     }
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buffer = "";
 
-    function appendDelta(text) {
-        const msgs = document.getElementById('messages');
-        let last = msgs.lastElementChild;
-        if (!last || !last.classList.contains('assistant')) {
-            const div = document.createElement('div');
-            div.className = 'message assistant';
-            div.innerHTML = '<div class="bubble cursor"></div>';
-            msgs.appendChild(div);
-            last = div;
-            msgs.scrollTop = msgs.scrollHeight;
-        }
-        const bubble = last.querySelector('.bubble');
-        let content = bubble.textContent;
-        if (content.endsWith('|')) content = content.slice(0, -1);
-        bubble.textContent = content + text;
-        bubble.classList.add('cursor');
-        msgs.scrollTop = msgs.scrollHeight;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      buffer += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buffer.indexOf("\n\n")) >= 0) {
+        const chunk = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+        parseSseChunk(chunk, bubble, toolCards);
+      }
     }
+  } catch (e) {
+    console.error(e);
+    bubble.remove();
+    addMessage("请求失败: " + e.message, "error");
+  } finally {
+    setSending(false);
+  }
+}
 
-    function finishDelta() {
-        const msgs = document.getElementById('messages');
-        const last = msgs.lastElementChild;
-        if (last) {
-            const bubble = last.querySelector('.bubble');
-            if (bubble) {
-                let content = bubble.textContent;
-                if (content.endsWith('|')) content = content.slice(0, -1);
-                bubble.textContent = content;
-                bubble.classList.remove('cursor');
-            }
-        }
+function parseSseChunk(chunk, bubble, toolCards) {
+  for (const line of chunk.split("\n")) {
+    if (!line.startsWith("data:")) {
+      continue;
     }
-
-    function addToolCall(name, id) {
-        const msgs = document.getElementById('messages');
-        const div = document.createElement('div');
-        div.className = 'message assistant';
-        div.innerHTML = '<div class="tool-call">🔧 <span class="name">' + escapeHtml(name) + '</span> (' + escapeHtml(id) + ')</div>';
-        msgs.appendChild(div);
-        msgs.scrollTop = msgs.scrollHeight;
+    const raw = line.slice(5).trim();
+    if (!raw) {
+      continue;
     }
-
-    function addSubagentExposed(saId, agentId, label) {
-        const msgs = document.getElementById('messages');
-        const div = document.createElement('div');
-        div.className = 'message assistant';
-        const btn = '<button onclick="connectSubagent(\'' + saId + '\')" style="padding:6px 12px;border-radius:6px;border:1px solid #34c759;background:white;color:#34c759;cursor:pointer;font-size:13px;">切换到子 Agent: ' + escapeHtml(label || agentId) + '</button>';
-        div.innerHTML = '<div class="tool-call">🤖 子 Agent 已暴露: ' + escapeHtml(label || agentId) + ' (' + escapeHtml(saId) + ')</div><div style="padding:4px 0;">' + btn + '</div>';
-        msgs.appendChild(div);
-        msgs.scrollTop = msgs.scrollHeight;
+    let evt;
+    try {
+      evt = JSON.parse(raw);
+    } catch (e) {
+      console.warn("无法解析 SSE 数据: " + raw);
+      continue;
     }
+    handleEvent(evt, bubble, toolCards);
+  }
+}
 
-    function connectSubagent(saId) {
-        subagentId = saId;
-        document.getElementById('subagent-tab').classList.remove('hidden');
-        switchTab('subagent');
-        addMessage('system', '已连接到子 Agent: ' + saId);
+function handleEvent(evt, bubble, toolCards) {
+  switch (evt.type) {
+    case "TEXT_BLOCK_DELTA":
+      bubble.removeAttribute("data-typing");
+      bubble.appendChild(document.createTextNode(evt.delta || ""));
+      scrollBottom();
+      break;
+
+    case "TOOL_CALL_START":
+      renderToolCard(evt, toolCards);
+      break;
+
+    case "TOOL_RESULT_END":
+      updateToolCard(evt, toolCards);
+      break;
+
+    case "SUBAGENT_EXPOSED":
+      renderSubagentNote(evt);
+      break;
+
+    case "AGENT_END":
+      if (bubble.dataset.typing && bubble.textContent.length === 0) {
+        bubble.textContent = "(空回复)";
+      }
+      break;
+
+    case "DONE":
+      break;
+
+    case "ERROR":
+      bubble.remove();
+      addMessage("错误: " + (evt.error || "未知错误"), "error");
+      break;
+
+    default:
+      // 未知事件类型，前向兼容：原样显示类型名
+      console.debug("未知事件", evt);
+  }
+}
+
+function renderToolCard(evt, toolCards) {
+  const card = document.createElement("div");
+  card.className = "tool-card";
+  const head = document.createElement("div");
+  head.className = "tool-head";
+  head.innerHTML =
+    '<span class="arrow">▼</span>' +
+    '<span class="name">' + esc(evt.toolCallName || "工具") + "</span>" +
+    '<span class="id">' + esc(evt.toolCallId || "") + "</span>" +
+    '<span class="status running">执行中</span>';
+  const body = document.createElement("div");
+  body.className = "tool-body";
+  card.appendChild(head);
+  card.appendChild(body);
+  head.addEventListener("click", () => card.classList.toggle("collapsed"));
+  els.messages.appendChild(card);
+  toolCards.set(evt.toolCallId || evt.toolCallName, card);
+  scrollBottom();
+}
+
+function updateToolCard(evt, toolCards) {
+  const card = toolCards.get(evt.toolCallId || evt.toolCallName);
+  if (!card) {
+    return;
+  }
+  const statusEl = card.querySelector(".status");
+  const ok = evt.status === "SUCCESS" || evt.status === "OK";
+  statusEl.className = "status " + (ok ? "success" : "failed");
+  statusEl.textContent = evt.status || (ok ? "成功" : "失败");
+  const body = card.querySelector(".tool-body");
+  if (evt.error) {
+    body.textContent = "错误: " + evt.error;
+  }
+}
+
+function renderSubagentNote(evt) {
+  const note = document.createElement("div");
+  note.className = "subagent-note";
+  note.innerHTML =
+    "子 Agent <b>" + esc(evt.label || evt.subagentId) + "</b> 已暴露，可直连对话";
+  const btn = document.createElement("button");
+  btn.textContent = "打开 Tab";
+  btn.addEventListener("click", () => openSubagentTab(evt));
+  note.appendChild(btn);
+  els.messages.appendChild(note);
+  scrollBottom();
+}
+
+/* ================= 子 Agent Tab ================= */
+function openSubagentTab(evt) {
+  const id = evt.subagentId;
+  const label = evt.label || id;
+  // 避免重复 Tab
+  const existing = document.querySelector('.tab[data-subagent="' + id + '"]');
+  if (existing) {
+    switchTab(existing);
+    return;
+  }
+  const tab = document.createElement("div");
+  tab.className = "tab";
+  tab.dataset.subagent = id;
+  tab.innerHTML = esc(label) + '<span class="close">×</span>';
+  tab.addEventListener("click", (e) => {
+    if (e.target.classList.contains("close")) {
+      tab.remove();
+      if (state.subagent === id) {
+        switchTab(document.getElementById("tab-main"));
+      }
+      return;
     }
+    switchTab(tab);
+  });
+  els.tabs.appendChild(tab);
+  switchTab(tab);
+}
 
-    function switchTab(tab) {
-        currentTab = tab;
-        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-        if (tab === 'main') {
-            document.querySelector('.tab[data-agent="main"]').classList.add('active');
-        } else {
-            document.getElementById('subagent-tab').classList.add('active');
-        }
+function switchTab(tabEl) {
+  document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
+  tabEl.classList.add("active");
+  state.subagent = tabEl.dataset.subagent || "";
+  els.messages.innerHTML = "";
+  const hint = document.createElement("div");
+  hint.id = "empty-hint";
+  hint.textContent = state.subagent
+    ? "正在直连子 Agent: " + state.subagent
+    : "输入消息开始对话。支持 SSE 流式输出、工具调用卡片、子 Agent 直连与 Plan 审批。";
+  els.messages.appendChild(hint);
+}
+
+/* ================= 管理面板 ================= */
+/**
+ * 当前会话 ID：显式输入时用输入值，缺省与聊天默认会话一致（tenant:user）。
+ */
+function currentSessionId() {
+  const tenant = document.getElementById("f-tenant").value.trim() || "tenant1";
+  const user = document.getElementById("f-user").value.trim() || "user1";
+  const raw = document.getElementById("f-session").value.trim();
+  return raw ? raw : tenant + ":" + user;
+}
+
+function currentAgentParam() {
+  const a = document.getElementById("f-agent").value;
+  return a ? "&agentId=" + encodeURIComponent(a) : "";
+}
+
+async function refreshAdmin() {
+  const tenant = document.getElementById("f-tenant").value.trim() || "tenant1";
+  const user = document.getElementById("f-user").value.trim() || "user1";
+  const base = "/admin/sessions/" + encodeURIComponent(tenant) + "/" + encodeURIComponent(user) +
+    "/" + currentSessionId();
+
+  // Plan 状态
+  try {
+    const r = await fetch(apiUrl(base + "/plan?" + currentAgentParam().replace(/^&/, "")), { headers: headers() });
+    if (r.ok) {
+      const d = await r.json();
+      els.planState.textContent = d.planActive ? "激活中" : "未激活";
+      els.planState.style.color = d.planActive ? "#f08c00" : "";
+      els.planFile.textContent = d.currentPlanFile || "-";
     }
+  } catch (e) {
+    console.warn("plan 查询失败", e);
+  }
 
-    function sendMessage() {
-        const input = document.getElementById('messageInput');
-        const msg = input.value.trim();
-        if (!msg) return;
-
-        input.value = '';
-        addMessage('user', msg);
-        document.getElementById('status').textContent = '等待响应...';
-        document.getElementById('sendBtn').disabled = true;
-
-        let url = '/api/v1/chat/stream?message=' + encodeURIComponent(msg) + '&userId=demo';
-        if (subagentId && currentTab === 'subagent') {
-            url += '&subagentId=' + encodeURIComponent(subagentId);
-        }
-
-        if (eventSource) {
-            eventSource.close();
-        }
-
-        eventSource = new EventSource(url);
-
-        eventSource.onmessage = function(e) {
-            if (e.data) {
-                try {
-                    const data = JSON.parse(e.data);
-                    switch (data.type) {
-                        case 'TEXT_BLOCK_DELTA':
-                            appendDelta(data.delta);
-                            break;
-                        case 'TOOL_CALL_START':
-                            addToolCall(data.toolCallName, data.toolCallId);
-                            break;
-                        case 'SUBAGENT_EXPOSED':
-                            addSubagentExposed(data.subagentId, data.agentId, data.label);
-                            break;
-                        case 'AGENT_END':
-                            finishDelta();
-                            document.getElementById('status').textContent = '完成 (' + data.finishReason + ')';
-                            break;
-                        case 'DONE':
-                            finishDelta();
-                            document.getElementById('status').textContent = '就绪';
-                            document.getElementById('sendBtn').disabled = false;
-                            eventSource.close();
-                            eventSource = null;
-                            break;
-                    }
-                } catch (e) {
-                    // 非 JSON 数据忽略
-                }
-            }
-        };
-
-        eventSource.onerror = function() {
-            finishDelta();
-            document.getElementById('status').textContent = '连接错误';
-            document.getElementById('sendBtn').disabled = false;
-            if (eventSource) {
-                eventSource.close();
-                eventSource = null;
-            }
-        };
+  // 权限模式
+  try {
+    const r = await fetch(apiUrl(base + "/permission-mode?" + currentAgentParam().replace(/^&/, "")), { headers: headers() });
+    if (r.ok) {
+      const d = await r.json();
+      els.permMode.textContent = d.mode || "-";
     }
+  } catch (e) {
+    console.warn("permission 查询失败", e);
+  }
 
-    function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
+  // 任务列表
+  try {
+    const r = await fetch(apiUrl(base + "/tasks?" + currentAgentParam().replace(/^&/, "")), { headers: headers() });
+    if (r.ok) {
+      const d = await r.json();
+      els.taskCount.textContent = "(" + (d.tasks ? d.tasks.length : 0) + ")";
+      if (!d.tasks || d.tasks.length === 0) {
+        els.taskList.innerHTML = '<li class="muted">暂无任务</li>';
+      } else {
+        els.taskList.innerHTML = "";
+        d.tasks.forEach((t) => {
+          const li = document.createElement("li");
+          li.innerHTML =
+            '<span class="task-state ' + esc(t.state || "PENDING") + '">' + esc(t.state || "PENDING") + "</span>" +
+            '<span class="task-subject" title="' + esc(t.subject || "") + '">' + esc(t.subject || "(无主题)") + "</span>";
+          els.taskList.appendChild(li);
+        });
+      }
     }
+  } catch (e) {
+    console.warn("tasks 查询失败", e);
+  }
+}
+
+async function enterPlan() {
+  await postAdmin(":enter-plan-mode");
+  refreshAdmin();
+}
+
+async function exitPlan() {
+  await postAdmin(":exit-plan-mode");
+  refreshAdmin();
+}
+
+async function postAdmin(action) {
+  const tenant = document.getElementById("f-tenant").value.trim() || "tenant1";
+  const user = document.getElementById("f-user").value.trim() || "user1";
+  const url = apiUrl("/admin/sessions/" + encodeURIComponent(tenant) + "/" + encodeURIComponent(user) +
+    "/" + currentSessionId() + action +
+    "?" + currentAgentParam().replace(/^&/, ""));
+  const r = await fetch(url, { method: "POST", headers: headers() });
+  if (!r.ok) {
+    const body = await r.text();
+    addMessage("管理操作失败: " + body, "error");
+  }
+}
+
+async function setPermission() {
+  const tenant = document.getElementById("f-tenant").value.trim() || "tenant1";
+  const user = document.getElementById("f-user").value.trim() || "user1";
+  const mode = document.getElementById("f-perm").value;
+  const url = apiUrl("/admin/sessions/" + encodeURIComponent(tenant) + "/" + encodeURIComponent(user) +
+    "/" + currentSessionId() + "/permission-mode" +
+    "?" + currentAgentParam().replace(/^&/, ""));
+  const r = await fetch(url, {
+    method: "PUT",
+    headers: Object.assign(headers(), { "Content-Type": "application/json" }),
+    body: JSON.stringify({ mode: mode }),
+  });
+  if (!r.ok) {
+    const body = await r.text();
+    addMessage("权限设置失败: " + body, "error");
+  } else {
+    refreshAdmin();
+  }
+}
+
+/* ================= 初始化 ================= */
+async function init() {
+  // 加载 Agent 列表
+  try {
+    const r = await fetch(apiUrl("/admin/agents"), { headers: headers() });
+    if (r.ok) {
+      const d = await r.json();
+      const sel = document.getElementById("f-agent");
+      if (d.agents) {
+        d.agents.forEach((name) => {
+          const opt = document.createElement("option");
+          opt.value = name;
+          opt.textContent = name + (name === d.mainAgent ? " (主)" : "");
+          sel.appendChild(opt);
+        });
+      }
+    }
+  } catch (e) {
+    console.warn("agents 加载失败", e);
+  }
+
+  // 服务健康状态
+  try {
+    const r = await fetch("/actuator/health");
+    const d = await r.json();
+    els.dot.className = d.status === "UP" ? "ok" : "err";
+  } catch (e) {
+    els.dot.className = "err";
+  }
+
+  // 事件绑定
+  document.getElementById("f-tenant").addEventListener("change", refreshAdmin);
+  document.getElementById("f-user").addEventListener("change", refreshAdmin);
+  document.getElementById("f-agent").addEventListener("change", refreshAdmin);
+  document.getElementById("f-session").addEventListener("change", refreshAdmin);
+  els.input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+
+  refreshAdmin();
+  setInterval(refreshAdmin, 15000);
+}
+
+init();
 </script>
 </body>
 </html>
