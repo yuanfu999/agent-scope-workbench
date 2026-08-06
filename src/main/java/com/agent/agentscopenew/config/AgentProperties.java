@@ -45,10 +45,14 @@ public record AgentProperties(
     }
 
     /**
-     * 获取记忆辅助模型，若未设置则使用主模型。
+     * 获取记忆辅助模型，若未设置（含哨兵默认值 "@{}"）则使用主模型。
+     * <p>
+     * 哨兵 "@{}" 是 memory.model 的默认占位：当 yml 中 ${MEMORY_MODEL:}
+     * 解析为空值且未显式配置时，Spring Boot 会将 record 组件绑定为该默认值，
+     * 此处需识别并回退，避免将非法模型名传入 MemoryConfig。
      */
     public String resolveMemoryModel() {
-        if (memoryModel == null || memoryModel.isBlank()) {
+        if (memoryModel == null || memoryModel.isBlank() || "@{}".equals(memoryModel)) {
             return model;
         }
         return memoryModel;
