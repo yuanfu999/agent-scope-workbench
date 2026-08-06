@@ -1,8 +1,6 @@
 package com.agent.agentscopenew.channel;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.alibaba.fastjson2.JSONObject;
 
 import io.agentscope.core.event.AgentEvent;
 import io.agentscope.core.event.AgentEndEvent;
@@ -11,8 +9,7 @@ import io.agentscope.core.event.ToolCallStartEvent;
 import io.agentscope.core.event.ToolResultEndEvent;
 import io.agentscope.core.event.SubagentExposedEvent;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * SSE 事件映射器：将 AgentScope {@link AgentEvent} 转换为 SSE JSON 协议。
@@ -26,10 +23,8 @@ import org.slf4j.LoggerFactory;
  * { "type": "AGENT_END",        "id": "evt-005", "finishReason": "END" }
  * </pre>
  */
+@Slf4j
 public final class SseEventMapper {
-
-    private static final Logger log = LoggerFactory.getLogger(SseEventMapper.class);
-    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private SseEventMapper() {
         // 工具类，禁止实例化
@@ -38,12 +33,12 @@ public final class SseEventMapper {
     /**
      * 将 AgentEvent 转换为 SSE JSON 字符串。
      *
-     * @param event  AgentScope 事件
+     * @param event   AgentScope 事件
      * @param eventId 事件序号（用于生成 id 字段）
      * @return SSE JSON 字符串，或 null（如果事件类型不在白名单中）
      */
     public static String toJson(AgentEvent event, long eventId) {
-        ObjectNode root = MAPPER.createObjectNode();
+        JSONObject root = new JSONObject();
         root.put("id", "evt-" + String.format("%03d", eventId));
 
         if (event instanceof TextBlockDeltaEvent e) {
@@ -72,13 +67,16 @@ public final class SseEventMapper {
             log.trace("透传未知事件类型: {}", event.getType());
         }
 
-        return root.toString();
+        return root.toJSONString();
     }
 
     /**
      * 获取 SSE 结束标记事件。
      */
     public static String doneEvent() {
-        return "event: done\ndata: {\"type\":\"DONE\",\"id\":\"evt-done\"}\n\n";
+        JSONObject done = new JSONObject();
+        done.put("type", "DONE");
+        done.put("id", "evt-done");
+        return "event: done\ndata: " + done.toJSONString() + "\n\n";
     }
 }

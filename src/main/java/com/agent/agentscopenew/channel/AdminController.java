@@ -9,8 +9,13 @@ import io.agentscope.core.state.AgentStateStore;
 import io.agentscope.core.state.Task;
 import io.agentscope.harness.agent.HarnessAgent;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONException;
+import com.alibaba.fastjson2.JSONObject;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -38,22 +43,17 @@ import java.util.Set;
  * {@link AgentStateStore}，userId / sessionId 采用与 ChatController
  * 一致的复合键格式（{@code tenant:userId} / {@code agentId:sessionId}）。
  */
+@Slf4j
+@RequiredArgsConstructor
 @RestController
 @RequestMapping("/api/v1/admin")
 public class AdminController {
-
-    private static final Logger log = LoggerFactory.getLogger(AdminController.class);
 
     /** AgentState 在 stateStore 中的保存键（官方常量）。 */
     private static final String STATE_KEY = "agent_state";
 
     private final AgentRegistry agentRegistry;
     private final WorkbenchProperties workbenchProperties;
-
-    public AdminController(AgentRegistry agentRegistry, WorkbenchProperties workbenchProperties) {
-        this.agentRegistry = agentRegistry;
-        this.workbenchProperties = workbenchProperties;
-    }
 
     /**
      * 查询 Agent 注册表。
@@ -209,9 +209,16 @@ public class AdminController {
             @PathVariable String userId,
             @PathVariable String sessionId,
             @RequestParam(value = "agentId", required = false) String agentId,
-            @RequestBody Map<String, String> body) {
+            @RequestBody String bodyJson) {
         HarnessAgent agent = resolveAgent(agentId);
-        String modeStr = body.getOrDefault("mode", "DEFAULT");
+        // 使用 fastjson 反序列化请求体，非法 JSON 返回 400
+        JSONObject body;
+        try {
+            body = JSON.parseObject(bodyJson);
+        } catch (JSONException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请求体不是合法 JSON");
+        }
+        String modeStr = (body != null) ? body.getString("mode") : null;
         PermissionMode mode = parsePermissionMode(modeStr);
 
         if (mode == PermissionMode.BYPASS && !isSandboxAgent(agentId)) {

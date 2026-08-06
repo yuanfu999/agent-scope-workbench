@@ -7,8 +7,7 @@ import io.agentscope.harness.agent.HarnessAgent;
 import io.agentscope.harness.agent.gateway.GatewayBootstrap;
 import io.agentscope.harness.agent.gateway.channel.chatui.ChatUiChannel;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -20,9 +19,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * 负责注册所有 Agent 到 {@link GatewayBootstrap}，并提供
  * {@link ChatUiChannel} 作为统一的会话路由入口。
  */
+@Slf4j
 public final class AgentRegistry {
-
-    private static final Logger log = LoggerFactory.getLogger(AgentRegistry.class);
 
     private final Map<String, HarnessAgent> agents = new ConcurrentHashMap<>();
     private final GatewayBootstrap gateway;

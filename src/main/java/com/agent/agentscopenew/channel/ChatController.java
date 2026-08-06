@@ -6,8 +6,11 @@ import com.agent.agentscopenew.security.TenantContext;
 import io.agentscope.harness.agent.gateway.channel.chatui.ChatUiChannel;
 import io.agentscope.harness.agent.gateway.channel.chatui.SendOptions;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import com.alibaba.fastjson2.JSONObject;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -31,17 +34,13 @@ import java.util.Map;
  *   <li>{@code GET /api/v1/chat/stream} — SSE 流式事件，实时推送推理过程</li>
  * </ul>
  */
+@Slf4j
+@RequiredArgsConstructor
 @RestController
 @RequestMapping("/api/v1")
 public class ChatController {
 
-    private static final Logger log = LoggerFactory.getLogger(ChatController.class);
-
     private final AgentRegistry agentRegistry;
-
-    public ChatController(AgentRegistry agentRegistry) {
-        this.agentRegistry = agentRegistry;
-    }
 
     /**
      * 非流式对话接口。
@@ -102,7 +101,9 @@ public class ChatController {
             @RequestParam(value = "subagentId", required = false) String subagentId) {
 
         if (message == null || message.isBlank()) {
-            return Flux.just("data: {\"error\":\"message 不能为空\"}\n\n");
+            JSONObject error = new JSONObject();
+            error.put("error", "message 不能为空");
+            return Flux.just("data: " + error.toJSONString() + "\n\n");
         }
 
         String resolvedAgentId = agentId != null ? agentId : agentRegistry.getMainAgentName();

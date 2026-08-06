@@ -17,8 +17,8 @@ import io.agentscope.harness.agent.memory.compaction.CompactionConfig;
 import io.agentscope.harness.agent.memory.compaction.ToolResultEvictionConfig;
 import io.agentscope.harness.agent.subagent.SubagentDeclaration;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
 import java.time.Duration;
@@ -33,9 +33,9 @@ import java.util.regex.Pattern;
  * 这是整个平台的核心组装点，负责将 {@link AgentProperties} 映射为
  * {@link HarnessAgent.Builder} 的完整调用链。
  */
+@Slf4j
+@RequiredArgsConstructor
 public final class AgentFactory {
-
-    private static final Logger log = LoggerFactory.getLogger(AgentFactory.class);
 
     /** 默认记忆 Flush 间隔（配置解析失败时兜底）。 */
     private static final Duration DEFAULT_FLUSH_GAP = Duration.ofMinutes(10);
@@ -44,10 +44,6 @@ public final class AgentFactory {
     private static final Pattern DURATION_PATTERN = Pattern.compile("(\\d+)\\s*(MS|S|M|H|D)");
 
     private final WorkbenchProperties workbenchConfig;
-
-    public AgentFactory(WorkbenchProperties workbenchConfig) {
-        this.workbenchConfig = workbenchConfig;
-    }
 
     /**
      * 根据配置构建一个 HarnessAgent。
