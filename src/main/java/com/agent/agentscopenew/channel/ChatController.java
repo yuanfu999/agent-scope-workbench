@@ -117,8 +117,7 @@ public class ChatController {
         Flux<io.agentscope.core.event.AgentEvent> eventFlux;
 
         if (subagentId != null && !subagentId.isBlank()) {
-            // 直连子 Agent
-            SendOptions options = new SendOptions(ctx.userId(), ctx.sessionId(), resolvedAgentId);
+            // 直连子 Agent（官方 API 以 subagentId 标识目标，无需 SendOptions）
             eventFlux = channel.sendToSubagentStream(subagentId, message);
         } else {
             SendOptions options = new SendOptions(ctx.userId(), ctx.sessionId(), resolvedAgentId);
