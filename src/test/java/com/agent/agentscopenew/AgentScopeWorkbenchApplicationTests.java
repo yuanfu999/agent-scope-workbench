@@ -4,6 +4,7 @@ import com.agent.agentscopenew.config.AgentProperties;
 import com.agent.agentscopenew.config.FilesystemConfig;
 import com.agent.agentscopenew.config.SandboxConfig;
 import com.agent.agentscopenew.config.WorkbenchProperties;
+import com.agent.agentscopenew.dto.response.ModelInfo;
 import com.agent.agentscopenew.security.TenantContext;
 
 import org.junit.jupiter.api.Test;
@@ -96,5 +97,64 @@ class AgentScopeWorkbenchApplicationTests {
                 .build();
         // memoryModel 为 null 时回退到主模型
         assertNotNull(withCustomMemory.resolveMemoryModel());
+    }
+
+    @Test
+    void testAgentPropertiesLabel() {
+        AgentProperties p = AgentProperties.builder()
+                .name("rnd-assistant-pro")
+                .model("deepseek:deepseek-v4-pro")
+                .label("DeepSeek V4 Pro")
+                .build();
+        assertEquals("DeepSeek V4 Pro", p.label());
+    }
+
+    @Test
+    void testListModelsDerivesFromAgents() {
+        WorkbenchProperties wp = new WorkbenchProperties(
+                "_default", "rnd-assistant-pro", "dev",
+                new WorkbenchProperties.StoreConfig("json-file", ""),
+                List.of(
+                        AgentProperties.builder()
+                                .name("rnd-assistant-pro")
+                                .model("deepseek:deepseek-v4-pro")
+                                .label("DeepSeek V4 Pro")
+                                .build(),
+                        AgentProperties.builder()
+                                .name("rnd-assistant-flash")
+                                .model("deepseek:deepseek-v4-flash")
+                                .label("DeepSeek V4 Flash")
+                                .build()));
+        List<ModelInfo> models = wp.listModels();
+        assertEquals(2, models.size());
+        assertEquals("deepseek-v4-pro", models.get(0).id());
+        assertEquals("DeepSeek V4 Pro", models.get(0).label());
+        assertEquals("rnd-assistant-pro", models.get(0).agentId());
+        assertEquals("deepseek-v4-flash", models.get(1).id());
+        assertEquals("rnd-assistant-flash", models.get(1).agentId());
+    }
+
+    @Test
+    void testListModelsLabelFallbackToModelId() {
+        WorkbenchProperties wp = new WorkbenchProperties(
+                "_default", "rnd-assistant", "dev",
+                new WorkbenchProperties.StoreConfig("json-file", ""),
+                List.of(AgentProperties.builder()
+                        .name("rnd-assistant")
+                        .model("deepseek:deepseek-chat")
+                        .build()));
+        List<ModelInfo> models = wp.listModels();
+        assertEquals(1, models.size());
+        // 未配置 label 时回退到模型 ID
+        assertEquals("deepseek-chat", models.get(0).label());
+    }
+
+    @Test
+    void testListModelsEmptyWhenNoAgents() {
+        WorkbenchProperties wp = new WorkbenchProperties(
+                "_default", "rnd-assistant", "dev",
+                new WorkbenchProperties.StoreConfig("json-file", ""),
+                List.of());
+        assertTrue(wp.listModels().isEmpty());
     }
 }

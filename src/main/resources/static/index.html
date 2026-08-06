@@ -279,6 +279,11 @@
   <h1>AgentScope Workbench</h1>
   <div class="field">租户 <input id="f-tenant" value="tenant1"></div>
   <div class="field">用户 <input id="f-user" value="user1"></div>
+  <div class="field">模型
+    <select id="f-model">
+      <option value="">(加载中)</option>
+    </select>
+  </div>
   <div class="field">Agent
     <select id="f-agent">
       <option value="">(默认)</option>
@@ -344,6 +349,7 @@ const state = {
   tenant: "tenant1",
   user: "user1",
   agent: "",
+  model: "",             // 模型下拉当前选中的 agentId
   session: "",
   apiKey: "_default",
   subagent: "",          // 当前 Tab 直连的子 Agent
@@ -633,6 +639,74 @@ function switchTab(tabEl) {
   els.messages.appendChild(hint);
 }
 
+/* ================= 模型 / Agent 联动 ================= */
+/**
+ * 加载可选模型列表（GET /api/v1/admin/models），渲染模型下拉。
+ * 默认选中主 Agent 对应的模型，并同步到 Agent 下拉。
+ */
+async function loadModels() {
+  const sel = document.getElementById("f-model");
+  try {
+    const r = await fetch(apiUrl("/admin/models"), { headers: headers() });
+    if (!r.ok) {
+      return;
+    }
+    const d = await r.json();
+    if (!d.models || d.models.length === 0) {
+      sel.innerHTML = '<option value="">(未配置)</option>';
+      return;
+    }
+    sel.innerHTML = "";
+    d.models.forEach((m) => {
+      const opt = document.createElement("option");
+      opt.value = m.agentId;
+      opt.textContent = m.label || m.id;
+      sel.appendChild(opt);
+    });
+    // 默认选中主 Agent 对应的模型
+    try {
+      const ar = await fetch(apiUrl("/admin/agents"), { headers: headers() });
+      if (ar.ok) {
+        const ad = await ar.json();
+        if (ad.mainAgent) {
+          const target = sel.querySelector('option[value="' + ad.mainAgent + '"]');
+          if (target) {
+            sel.value = ad.mainAgent;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("mainAgent 查询失败", e);
+    }
+    syncAgentFromModel();
+  } catch (e) {
+    console.warn("models 加载失败", e);
+  }
+}
+
+/** 模型下拉 → Agent 下拉（选中模型对应的 agent）。 */
+function syncAgentFromModel() {
+  const sel = document.getElementById("f-model");
+  const agentSel = document.getElementById("f-agent");
+  state.model = sel.value;
+  const opt = agentSel.querySelector('option[value="' + sel.value + '"]');
+  if (opt) {
+    agentSel.value = sel.value;
+    state.agent = sel.value;
+  }
+}
+
+/** Agent 下拉 → 模型下拉（Agent 属于已配置模型时反向联动）。 */
+function syncModelFromAgent() {
+  const sel = document.getElementById("f-model");
+  const agentSel = document.getElementById("f-agent");
+  const opt = sel.querySelector('option[value="' + agentSel.value + '"]');
+  if (opt) {
+    sel.value = agentSel.value;
+    state.model = agentSel.value;
+  }
+}
+
 /* ================= 管理面板 ================= */
 /**
  * 当前会话 ID：显式输入时用输入值，缺省与聊天默认会话一致（tenant:user）。
@@ -748,6 +822,9 @@ async function setPermission() {
 
 /* ================= 初始化 ================= */
 async function init() {
+  // 加载模型列表（联动 Agent 下拉）
+  await loadModels();
+
   // 加载 Agent 列表
   try {
     const r = await fetch(apiUrl("/admin/agents"), { headers: headers() });
@@ -766,6 +843,8 @@ async function init() {
   } catch (e) {
     console.warn("agents 加载失败", e);
   }
+  // Agent 下拉填充完成后，再按模型选择同步一次（保证默认值一致）
+  syncAgentFromModel();
 
   // 服务健康状态
   try {
@@ -779,7 +858,14 @@ async function init() {
   // 事件绑定
   document.getElementById("f-tenant").addEventListener("change", refreshAdmin);
   document.getElementById("f-user").addEventListener("change", refreshAdmin);
-  document.getElementById("f-agent").addEventListener("change", refreshAdmin);
+  document.getElementById("f-model").addEventListener("change", () => {
+    syncAgentFromModel();
+    refreshAdmin();
+  });
+  document.getElementById("f-agent").addEventListener("change", () => {
+    syncModelFromAgent();
+    refreshAdmin();
+  });
   document.getElementById("f-session").addEventListener("change", refreshAdmin);
   els.input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {

@@ -1,13 +1,58 @@
 workbench:
   api-key: ${WORKBENCH_API_KEY:_default}
-  main-agent: rnd-assistant
+  main-agent: rnd-assistant-pro
   active-profile: ${SPRING_PROFILES_ACTIVE:dev}
   store:
     type: ${STORE_TYPE:json-file}
     redis-url: ${REDIS_URL:}
   agents:
-    - name: rnd-assistant
-      model: ${LLM_MODEL:openai:gpt-4o}
+    - name: rnd-assistant-pro
+      label: DeepSeek V4 Pro
+      model: ${LLM_MODEL_PRO:deepseek:deepseek-v4-pro}
+      sys-prompt: |
+        你是一个研发助手，擅长代码审查、知识问答和自动化任务执行。
+        你可以委派子 Agent 处理独立任务，支持 Plan Mode 拆分复杂工作。
+      workspace: .agentscope/workspace
+      steps: 30
+      temperature: 0.7
+      top-p: 0.95
+      memory:
+        enabled: true
+        flush-trigger: THROTTLED(10m)
+        model: ${MEMORY_MODEL:}
+      compaction:
+        enabled: true
+        trigger-messages: 40
+        keep-messages: 10
+      plan-mode:
+        enabled: true
+        allow-shell: false
+        plan-directory: plans
+      task-list:
+        enabled: true
+      filesystem:
+        mode: ${FS_MODE:LOCAL}
+        isolation-scope: USER
+        anonymous-user-id: _default
+      sandbox:
+        image: ubuntu:24.04
+        memory-mb: 512
+        cpu-count: 2
+        network: ""
+        snapshot-type: LOCAL
+        workspace-projection-enabled: true
+      skills:
+        repositories:
+          - classpath
+          - git
+        git-url: ${SKILLS_GIT_URL:}
+      subagents:
+        - reviewer
+        - researcher
+        - note-taker
+    - name: rnd-assistant-flash
+      label: DeepSeek V4 Flash
+      model: ${LLM_MODEL_FLASH:deepseek:deepseek-v4-flash}
       sys-prompt: |
         你是一个研发助手，擅长代码审查、知识问答和自动化任务执行。
         你可以委派子 Agent 处理独立任务，支持 Plan Mode 拆分复杂工作。

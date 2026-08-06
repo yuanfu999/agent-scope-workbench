@@ -32,7 +32,8 @@ public record AgentProperties(
         SandboxConfig sandbox,
         @DefaultValue({"classpath", "git"}) List<String> skillsRepositories,
         @DefaultValue("") String skillsGitUrl,
-        @DefaultValue({"reviewer", "researcher", "note-taker"}) List<String> subagents) {
+        @DefaultValue({"reviewer", "researcher", "note-taker"}) List<String> subagents,
+        @DefaultValue("") String label) {
 
     /**
      * 获取工作区路径。
@@ -71,7 +72,8 @@ public record AgentProperties(
                 FilesystemConfig.defaults(),
                 SandboxConfig.defaults(),
                 List.of("classpath", "git"), "",
-                List.of("reviewer", "researcher", "note-taker"));
+                List.of("reviewer", "researcher", "note-taker"),
+                "");
     }
 
     /**
@@ -104,6 +106,7 @@ public record AgentProperties(
         private List<String> skillsRepositories = List.of("classpath", "git");
         private String skillsGitUrl = "";
         private List<String> subagents = List.of("reviewer", "researcher", "note-taker");
+        private String label = "";
 
         public Builder name(String name) { this.name = name; return this; }
         public Builder model(String model) { this.model = model; return this; }
@@ -118,12 +121,14 @@ public record AgentProperties(
         public Builder skillsRepositories(List<String> skillsRepositories) { this.skillsRepositories = skillsRepositories; return this; }
         public Builder subagents(List<String> subagents) { this.subagents = subagents; return this; }
 
+        public Builder label(String label) { this.label = label; return this; }
+
         public AgentProperties build() {
             return new AgentProperties(name, model, sysPrompt, workspace, steps, temperature,
                     topP, memoryModel, flushTrigger, memoryEnabled, compactionEnabled,
                     triggerMessages, keepMessages, planModeEnabled, allowShellInPlanMode,
                     planDirectory, taskListEnabled, filesystem, sandbox,
-                    skillsRepositories, skillsGitUrl, subagents);
+                    skillsRepositories, skillsGitUrl, subagents, label);
         }
     }
 }

@@ -7,8 +7,23 @@ workbench:
   store:
     type: json-file
   agents:
-    - name: rnd-assistant
-      model: ${LLM_MODEL:openai:gpt-4o}
+    - name: rnd-assistant-pro
+      label: DeepSeek V4 Pro
+      model: ${LLM_MODEL_PRO:deepseek:deepseek-v4-pro}
+      sys-prompt: |
+        你是一个研发助手（开发模式）。
+        擅长代码审查、知识问答和自动化任务执行。
+      workspace: .agentscope/workspace
+      steps: 30
+      filesystem:
+        mode: LOCAL
+      sandbox:
+        image: ubuntu:24.04
+        memory-mb: 512
+        cpu-count: 2
+    - name: rnd-assistant-flash
+      label: DeepSeek V4 Flash
+      model: ${LLM_MODEL_FLASH:deepseek:deepseek-v4-flash}
       sys-prompt: |
         你是一个研发助手（开发模式）。
         擅长代码审查、知识问答和自动化任务执行。

@@ -4,6 +4,8 @@ import com.agent.agentscopenew.agent.AgentRegistry;
 import com.agent.agentscopenew.config.WorkbenchProperties;
 import com.agent.agentscopenew.dto.request.SetPermissionModeRequest;
 import com.agent.agentscopenew.dto.response.AgentListResponse;
+import com.agent.agentscopenew.dto.response.ModelInfo;
+import com.agent.agentscopenew.dto.response.ModelListResponse;
 import com.agent.agentscopenew.dto.response.OperationResponse;
 import com.agent.agentscopenew.dto.response.PermissionModeResponse;
 import com.agent.agentscopenew.dto.response.PermissionModeResult;
@@ -67,6 +69,18 @@ public class AdminController {
                 agentRegistry.getMainAgentName(),
                 agentRegistry.getAllAgents().keySet(),
                 agentRegistry.agentCount()));
+    }
+
+    /**
+     * 查询可选模型列表（供前端模型选择器使用）。
+     * <p>
+     * 数据源为 workbench.agents 配置，每个 Agent 对应一个可选模型，
+     * 页面按 agentId 路由对话到对应模型。
+     */
+    @GetMapping("/models")
+    public Mono<ModelListResponse> listModels() {
+        List<ModelInfo> models = workbenchProperties.listModels();
+        return Mono.just(new ModelListResponse(models, models.size()));
     }
 
     /**
