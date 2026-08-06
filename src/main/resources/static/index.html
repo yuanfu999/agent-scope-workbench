@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AgentScope Workbench 演示</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; color: #333; }
+        .app { max-width: 900px; margin: 0 auto; padding: 20px; }
+        h1 { font-size: 24px; margin-bottom: 8px; color: #1a1a1a; }
+        .subtitle { font-size: 14px; color: #666; margin-bottom: 20px; }
+        .chat-container { background: white; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); overflow: hidden; }
+        .messages { height: 500px; overflow-y: auto; padding: 20px; background: #fafafa; }
+        .message { margin-bottom: 16px; display: flex; flex-direction: column; }
+        .message.user { align-items: flex-end; }
+        .message.assistant { align-items: flex-start; }
+        .bubble { max-width: 75%; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.6; white-space: pre-wrap; }
+        .user .bubble { background: #007aff; color: white; border-bottom-right-radius: 4px; }
+        .assistant .bubble { background: white; border: 1px solid #e0e0e0; border-bottom-left-radius: 4px; }
+        .tool-call { font-size: 12px; color: #888; padding: 4px 0; }
+        .tool-call .name { color: #007aff; font-weight: 600; }
+        .input-area { display: flex; padding: 12px; border-top: 1px solid #e0e0e0; background: white; gap: 8px; }
+        .input-area input { flex: 1; padding: 10px 14px; border: 1px solid #e0e0e0; border-radius: 8px; font-size: 14px; outline: none; }
+        .input-area input:focus { border-color: #007aff; }
+        .input-area button { padding: 10px 20px; background: #007aff; color: white; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; }
+        .input-area button:disabled { background: #ccc; cursor: not-allowed; }
+        .input-area button:hover:not(:disabled) { background: #0056b3; }
+        .status { font-size: 12px; color: #999; padding: 8px 20px; background: white; border-top: 1px solid #f0f0f0; }
+        .tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+        .tab { padding: 6px 14px; border-radius: 16px; font-size: 13px; cursor: pointer; border: 1px solid #e0e0e0; background: white; }
+        .tab.active { background: #007aff; color: white; border-color: #007aff; }
+        .tab.subagent { border-color: #34c759; color: #34c759; }
+        .tab.subagent.active { background: #34c759; color: white; }
+        .hidden { display: none; }
+        .plan-approve { display: flex; gap: 8px; margin-top: 8px; }
+        .plan-approve button { padding: 6px 16px; border-radius: 6px; border: none; font-size: 13px; cursor: pointer; }
+        .btn-approve { background: #34c759; color: white; }
+        .btn-reject { background: #ff3b30; color: white; }
+        .thinking { font-style: italic; color: #888; font-size: 13px; padding: 4px 0; }
+        .cursor::after { content: '|'; animation: blink 1s infinite; }
+        @keyframes blink { 50% { opacity: 0; } }
+    </style>
+</head>
+<body>
+<div class="app">
+    <h1>AgentScope Workbench</h1>
+    <div class="subtitle">企业级多租户 AI Agent 工作台 · 演示前端</div>
+
+    <div class="tabs" id="tabs">
+        <button class="tab active" data-agent="main" onclick="switchTab('main')">主对话</button>
+        <button class="tab subagent hidden" id="subagent-tab" onclick="switchTab('subagent')">子 Agent</button>
+    </div>
+
+    <div class="chat-container">
+        <div class="messages" id="messages"></div>
+        <div class="status" id="status">就绪</div>
+        <div class="input-area">
+            <input type="text" id="messageInput" placeholder="输入消息..." onkeydown="if(event.key==='Enter') sendMessage()">
+            <button id="sendBtn" onclick="sendMessage()">发送</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    let currentTab = 'main';
+    let subagentId = null;
+    let eventSource = null;
+
+    function addMessage(role, content, extra) {
+        const msgs = document.getElementById('messages');
+        const div = document.createElement('div');
+        div.className = 'message ' + role;
+
+        let html = '<div class="bubble">' + escapeHtml(content) + '</div>';
+        if (extra) {
+            html += '<div class="tool-call">' + extra + '</div>';
+        }
+        div.innerHTML = html;
+        msgs.appendChild(div);
+        msgs.scrollTop = msgs.scrollHeight;
+        return div;
+    }
+
+    function appendDelta(text) {
+        const msgs = document.getElementById('messages');
+        let last = msgs.lastElementChild;
+        if (!last || !last.classList.contains('assistant')) {
+            const div = document.createElement('div');
+            div.className = 'message assistant';
+            div.innerHTML = '<div class="bubble cursor"></div>';
+            msgs.appendChild(div);
+            last = div;
+            msgs.scrollTop = msgs.scrollHeight;
+        }
+        const bubble = last.querySelector('.bubble');
+        let content = bubble.textContent;
+        if (content.endsWith('|')) content = content.slice(0, -1);
+        bubble.textContent = content + text;
+        bubble.classList.add('cursor');
+        msgs.scrollTop = msgs.scrollHeight;
+    }
+
+    function finishDelta() {
+        const msgs = document.getElementById('messages');
+        const last = msgs.lastElementChild;
+        if (last) {
+            const bubble = last.querySelector('.bubble');
+            if (bubble) {
+                let content = bubble.textContent;
+                if (content.endsWith('|')) content = content.slice(0, -1);
+                bubble.textContent = content;
+                bubble.classList.remove('cursor');
+            }
+        }
+    }
+
+    function addToolCall(name, id) {
+        const msgs = document.getElementById('messages');
+        const div = document.createElement('div');
+        div.className = 'message assistant';
+        div.innerHTML = '<div class="tool-call">🔧 <span class="name">' + escapeHtml(name) + '</span> (' + escapeHtml(id) + ')</div>';
+        msgs.appendChild(div);
+        msgs.scrollTop = msgs.scrollHeight;
+    }
+
+    function addSubagentExposed(saId, agentId, label) {
+        const msgs = document.getElementById('messages');
+        const div = document.createElement('div');
+        div.className = 'message assistant';
+        const btn = '<button onclick="connectSubagent(\'' + saId + '\')" style="padding:6px 12px;border-radius:6px;border:1px solid #34c759;background:white;color:#34c759;cursor:pointer;font-size:13px;">切换到子 Agent: ' + escapeHtml(label || agentId) + '</button>';
+        div.innerHTML = '<div class="tool-call">🤖 子 Agent 已暴露: ' + escapeHtml(label || agentId) + ' (' + escapeHtml(saId) + ')</div><div style="padding:4px 0;">' + btn + '</div>';
+        msgs.appendChild(div);
+        msgs.scrollTop = msgs.scrollHeight;
+    }
+
+    function connectSubagent(saId) {
+        subagentId = saId;
+        document.getElementById('subagent-tab').classList.remove('hidden');
+        switchTab('subagent');
+        addMessage('system', '已连接到子 Agent: ' + saId);
+    }
+
+    function switchTab(tab) {
+        currentTab = tab;
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        if (tab === 'main') {
+            document.querySelector('.tab[data-agent="main"]').classList.add('active');
+        } else {
+            document.getElementById('subagent-tab').classList.add('active');
+        }
+    }
+
+    function sendMessage() {
+        const input = document.getElementById('messageInput');
+        const msg = input.value.trim();
+        if (!msg) return;
+
+        input.value = '';
+        addMessage('user', msg);
+        document.getElementById('status').textContent = '等待响应...';
+        document.getElementById('sendBtn').disabled = true;
+
+        let url = '/api/v1/chat/stream?message=' + encodeURIComponent(msg) + '&userId=demo';
+        if (subagentId && currentTab === 'subagent') {
+            url += '&subagentId=' + encodeURIComponent(subagentId);
+        }
+
+        if (eventSource) {
+            eventSource.close();
+        }
+
+        eventSource = new EventSource(url);
+
+        eventSource.onmessage = function(e) {
+            if (e.data) {
+                try {
+                    const data = JSON.parse(e.data);
+                    switch (data.type) {
+                        case 'TEXT_BLOCK_DELTA':
+                            appendDelta(data.delta);
+                            break;
+                        case 'TOOL_CALL_START':
+                            addToolCall(data.toolCallName, data.toolCallId);
+                            break;
+                        case 'SUBAGENT_EXPOSED':
+                            addSubagentExposed(data.subagentId, data.agentId, data.label);
+                            break;
+                        case 'AGENT_END':
+                            finishDelta();
+                            document.getElementById('status').textContent = '完成 (' + data.finishReason + ')';
+                            break;
+                        case 'DONE':
+                            finishDelta();
+                            document.getElementById('status').textContent = '就绪';
+                            document.getElementById('sendBtn').disabled = false;
+                            eventSource.close();
+                            eventSource = null;
+                            break;
+                    }
+                } catch (e) {
+                    // 非 JSON 数据忽略
+                }
+            }
+        };
+
+        eventSource.onerror = function() {
+            finishDelta();
+            document.getElementById('status').textContent = '连接错误';
+            document.getElementById('sendBtn').disabled = false;
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+            }
+        };
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+</script>
+</body>
+</html>

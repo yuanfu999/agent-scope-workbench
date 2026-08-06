@@ -1,0 +1,27 @@
+spring:
+  application:
+    name: agentscope-workbench-dev
+
+workbench:
+  api-key: _default
+  store:
+    type: json-file
+  agents:
+    - name: rnd-assistant
+      model: ${LLM_MODEL:openai:gpt-4o}
+      sys-prompt: |
+        你是一个研发助手（开发模式）。
+        擅长代码审查、知识问答和自动化任务执行。
+      workspace: .agentscope/workspace
+      steps: 30
+      filesystem:
+        mode: LOCAL
+      sandbox:
+        image: ubuntu:24.04
+        memory-mb: 512
+        cpu-count: 2
+
+logging:
+  level:
+    com.agent: DEBUG
+    io.agentscope: DEBUG
