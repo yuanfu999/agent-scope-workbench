@@ -1,6 +1,8 @@
 package com.agent.agentscopenew.channel;
 
 import com.agent.agentscopenew.agent.AgentRegistry;
+import com.agent.agentscopenew.dto.request.ChatRequest;
+import com.agent.agentscopenew.dto.response.ChatResponse;
 import com.agent.agentscopenew.security.TenantContext;
 
 import io.agentscope.harness.agent.gateway.channel.chatui.ChatUiChannel;
@@ -147,14 +149,5 @@ public class ChatController {
         }
         // 按 userId 生成稳定 session（同一用户的会话可恢复）
         return agentId + ":" + tenantId + ":" + userId;
-    }
-
-    /**
-     * 聊天请求体。
-     */
-    public record ChatRequest(
-            String message,
-            String sessionId,
-            String agentId) {
     }
 }

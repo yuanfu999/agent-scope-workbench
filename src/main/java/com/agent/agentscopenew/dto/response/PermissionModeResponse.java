@@ -1,4 +1,4 @@
-package com.agent.agentscopenew.channel;
+package com.agent.agentscopenew.dto.response;
 
 /**
  * 权限模式查询响应。

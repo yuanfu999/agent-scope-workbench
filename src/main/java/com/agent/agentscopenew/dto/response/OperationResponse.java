@@ -1,4 +1,4 @@
-package com.agent.agentscopenew.channel;
+package com.agent.agentscopenew.dto.response;
 
 /**
  * 管理操作结果响应。

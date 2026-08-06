@@ -1,5 +1,8 @@
 package com.agent.agentscopenew.channel;
 
+import com.agent.agentscopenew.dto.event.SseEvent;
+import com.agent.agentscopenew.dto.response.ErrorResponse;
+
 import com.alibaba.fastjson2.JSON;
 
 import io.agentscope.core.event.AgentEvent;

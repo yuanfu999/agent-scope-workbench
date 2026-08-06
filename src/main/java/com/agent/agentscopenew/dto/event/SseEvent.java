@@ -1,4 +1,4 @@
-package com.agent.agentscopenew.channel;
+package com.agent.agentscopenew.dto.event;
 
 import lombok.Builder;
 import lombok.Data;

@@ -1,4 +1,4 @@
-package com.agent.agentscopenew.channel;
+package com.agent.agentscopenew.dto.request;
 
 /**
  * 设置权限模式请求体。

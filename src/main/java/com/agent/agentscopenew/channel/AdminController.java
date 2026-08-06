@@ -2,6 +2,15 @@ package com.agent.agentscopenew.channel;
 
 import com.agent.agentscopenew.agent.AgentRegistry;
 import com.agent.agentscopenew.config.WorkbenchProperties;
+import com.agent.agentscopenew.dto.request.SetPermissionModeRequest;
+import com.agent.agentscopenew.dto.response.AgentListResponse;
+import com.agent.agentscopenew.dto.response.OperationResponse;
+import com.agent.agentscopenew.dto.response.PermissionModeResponse;
+import com.agent.agentscopenew.dto.response.PermissionModeResult;
+import com.agent.agentscopenew.dto.response.PlanStatusResponse;
+import com.agent.agentscopenew.dto.response.SessionListResponse;
+import com.agent.agentscopenew.dto.response.TaskListResponse;
+import com.agent.agentscopenew.dto.response.TaskView;
 
 import io.agentscope.core.permission.PermissionMode;
 import io.agentscope.core.state.AgentState;

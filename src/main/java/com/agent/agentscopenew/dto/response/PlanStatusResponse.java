@@ -1,4 +1,4 @@
-package com.agent.agentscopenew.channel;
+package com.agent.agentscopenew.dto.response;
 
 /**
  * Plan Mode 状态响应。
