@@ -4,6 +4,9 @@ spring:
 
 workbench:
   api-key: _default
+  deepseek:
+    api-key: ${DEEPSEEK_API_KEY:}
+    base-url: ${DEEPSEEK_BASE_URL:}
   store:
     type: json-file
   agents:

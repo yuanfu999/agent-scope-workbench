@@ -1,5 +1,8 @@
 workbench:
   api-key: ${WORKBENCH_API_KEY:_default}
+  deepseek:
+    api-key: ${DEEPSEEK_API_KEY:}
+    base-url: ${DEEPSEEK_BASE_URL:}
   main-agent: rnd-assistant-pro
   active-profile: ${SPRING_PROFILES_ACTIVE:dev}
   store:

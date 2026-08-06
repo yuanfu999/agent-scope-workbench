@@ -19,10 +19,13 @@ import java.util.regex.Pattern;
  * 直接使用会把 DeepSeek 密钥发往 api.openai.com 导致鉴权失败。
  * <p>
  * 本类通过标准 SPI（{@code META-INF/services/io.agentscope.core.model.spi.ModelProvider}）
- * 注册 {@code deepseek:} 前缀模型，密钥与端点均由环境变量控制：
+ * 注册 {@code deepseek:} 前缀模型。密钥与端点按优先级从高到低取：
  * <ul>
- *   <li>{@code DEEPSEEK_API_KEY}：DeepSeek API 密钥（必需，缺失时构建期抛异常）</li>
- *   <li>{@code DEEPSEEK_BASE_URL}：API 端点，默认 {@value #DEFAULT_BASE_URL}</li>
+ *   <li>{@code context.getApiKey()}：模型创建上下文携带的密钥</li>
+ *   <li>{@code workbench.deepseek.api-key}：Spring 配置注入（{@link #configure(String, String)}），
+ *       解决 IDE/终端启动时环境变量不生效的问题</li>
+ *   <li>{@code DEEPSEEK_API_KEY} / {@code DEEPSEEK_BASE_URL}：环境变量兜底，
+ *       缺失时构建期抛异常</li>
  * </ul>
  * 使用方式：{@code LLM_MODEL=deepseek:deepseek-chat}（主 Agent、记忆模型、子 Agent 均生效）。
  */
@@ -37,6 +40,12 @@ public final class DeepSeekModelProvider implements ModelProvider {
     /** 模型 ID 匹配模式，与官方 OpenAI 提供商保持同风格。 */
     private static final Pattern MODEL_ID = Pattern.compile("deepseek:.+");
 
+    /** Spring 配置注入的 API 密钥（workbench.deepseek.api-key），优先级高于环境变量。 */
+    private static volatile String configuredApiKey;
+
+    /** Spring 配置注入的 API 端点（workbench.deepseek.base-url），优先级高于环境变量。 */
+    private static volatile String configuredBaseUrl;
+
     @Override
     public String providerId() {
         return "deepseek";
@@ -45,6 +54,20 @@ public final class DeepSeekModelProvider implements ModelProvider {
     @Override
     public boolean supports(String modelId) {
         return modelId != null && MODEL_ID.matcher(modelId).matches();
+    }
+
+    /**
+     * 注入全局 API 密钥与端点。
+     * <p>
+     * 由 Spring 配置（workbench.deepseek.*）在应用启动时调用，供 SPI 创建的
+     * 模型实例使用；传入 null 或空白串表示不覆盖对应项（回退到环境变量）。
+     *
+     * @param apiKey  API 密钥
+     * @param baseUrl API 端点
+     */
+    public static void configure(String apiKey, String baseUrl) {
+        configuredApiKey = trimToNull(apiKey);
+        configuredBaseUrl = trimToNull(baseUrl);
     }
 
     @Override
@@ -58,17 +81,18 @@ public final class DeepSeekModelProvider implements ModelProvider {
             throw new IllegalArgumentException("不支持的模型 ID: " + modelId);
         }
         String modelName = modelId.substring(PREFIX.length());
-        String apiKey = firstNonBlank(context.getApiKey(), System.getenv("DEEPSEEK_API_KEY"));
+        String apiKey = firstNonBlank(context.getApiKey(), configuredApiKey,
+                System.getenv("DEEPSEEK_API_KEY"));
         if (apiKey == null) {
             throw new IllegalStateException(
-                    "环境变量 DEEPSEEK_API_KEY 未设置，无法创建 deepseek 模型: " + modelId);
+                    "DEEPSEEK_API_KEY 未配置（环境变量或 workbench.deepseek.api-key），无法创建 deepseek 模型: " + modelId);
         }
         OpenAIChatModel.Builder builder = OpenAIChatModel.builder()
                 .apiKey(apiKey)
                 .modelName(modelName)
                 .formatter(new DeepSeekFormatter())
                 .stream(context.getStream() == null || context.getStream());
-        String baseUrl = trimToNull(System.getenv("DEEPSEEK_BASE_URL"));
+        String baseUrl = firstNonBlank(configuredBaseUrl, System.getenv("DEEPSEEK_BASE_URL"));
         builder.baseUrl(baseUrl == null ? DEFAULT_BASE_URL : baseUrl);
         String endpointPath = trimToNull(context.getEndpointPath());
         if (endpointPath != null) {
@@ -97,12 +121,13 @@ public final class DeepSeekModelProvider implements ModelProvider {
         }
     }
 
-    private static String firstNonBlank(String first, String second) {
-        if (first != null && !first.isBlank()) {
-            return first;
-        }
-        if (second != null && !second.isBlank()) {
-            return second;
+    private static String firstNonBlank(String... candidates) {
+        if (candidates != null) {
+            for (String candidate : candidates) {
+                if (candidate != null && !candidate.isBlank()) {
+                    return candidate;
+                }
+            }
         }
         return null;
     }
