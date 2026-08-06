@@ -6,8 +6,6 @@ import com.agent.agentscopenew.security.TenantContext;
 import io.agentscope.harness.agent.gateway.channel.chatui.ChatUiChannel;
 import io.agentscope.harness.agent.gateway.channel.chatui.SendOptions;
 
-import com.alibaba.fastjson2.JSONObject;
-
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -23,7 +21,6 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.time.Duration;
-import java.util.Map;
 
 /**
  * 聊天控制器：REST 非流式 + SSE 流式对话接口。
@@ -48,17 +45,17 @@ public class ChatController {
      * @param xTenantId  租户 ID（请求头）
      * @param xUserId    用户 ID（请求头）
      * @param request    请求体：{ "message": "...", "sessionId": "...", "agentId": "..." }
-     * @return 非流式响应
+     * @return 聊天响应 bean（成功携带 response，失败携带 error）
      */
     @PostMapping(value = "/chat", produces = MediaType.APPLICATION_JSON_VALUE)
-    public Mono<Map<String, Object>> chat(
+    public Mono<ChatResponse> chat(
             @RequestHeader(value = "X-Tenant-Id", defaultValue = "default") String xTenantId,
             @RequestHeader(value = "X-User-Id", defaultValue = "anonymous") String xUserId,
             @RequestBody ChatRequest request) {
 
         String message = request.message();
         if (message == null || message.isBlank()) {
-            return Mono.just(Map.of("error", "message 不能为空"));
+            return Mono.just(ChatResponse.builder().error("message 不能为空").build());
         }
 
         String agentId = request.agentId() != null ? request.agentId() : agentRegistry.getMainAgentName();
@@ -73,10 +70,11 @@ public class ChatController {
                 xTenantId, xUserId, sessionId, agentId, message.length());
 
         return channel.send(options, message)
-                .map(response -> Map.of(
-                        "response", response.getContent(),
-                        "sessionId", sessionId,
-                        "agentId", agentId))
+                .map(response -> ChatResponse.builder()
+                        .response(response.getContent())
+                        .sessionId(sessionId)
+                        .agentId(agentId)
+                        .build())
                 .timeout(Duration.ofSeconds(300));
     }
 
@@ -101,9 +99,7 @@ public class ChatController {
             @RequestParam(value = "subagentId", required = false) String subagentId) {
 
         if (message == null || message.isBlank()) {
-            JSONObject error = new JSONObject();
-            error.put("error", "message 不能为空");
-            return Flux.just("data: " + error.toJSONString() + "\n\n");
+            return Flux.just(SseEventMapper.errorEvent("message 不能为空"));
         }
 
         String resolvedAgentId = agentId != null ? agentId : agentRegistry.getMainAgentName();
@@ -134,7 +130,8 @@ public class ChatController {
                     if (json == null) {
                         return "";
                     }
-                    return "data: " + json + "\n\n";
+                    // 只输出纯 JSON，data: 前缀与换行由 SSE 编码器统一添加
+                    return json;
                 })
                 .filter(s -> !s.isEmpty())
                 .concatWithValues(SseEventMapper.doneEvent())

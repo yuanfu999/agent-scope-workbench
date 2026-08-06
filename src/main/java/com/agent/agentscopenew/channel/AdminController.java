@@ -9,10 +9,6 @@ import io.agentscope.core.state.AgentStateStore;
 import io.agentscope.core.state.Task;
 import io.agentscope.harness.agent.HarnessAgent;
 
-import com.alibaba.fastjson2.JSON;
-import com.alibaba.fastjson2.JSONException;
-import com.alibaba.fastjson2.JSONObject;
-
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -29,9 +25,7 @@ import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Mono;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -59,37 +53,32 @@ public class AdminController {
      * 查询 Agent 注册表。
      */
     @GetMapping("/agents")
-    public Mono<Map<String, Object>> listAgents() {
-        Map<String, Object> result = new HashMap<>();
-        result.put("mainAgent", agentRegistry.getMainAgentName());
-        result.put("agents", agentRegistry.getAllAgents().keySet());
-        result.put("count", agentRegistry.agentCount());
-        return Mono.just(result);
+    public Mono<AgentListResponse> listAgents() {
+        return Mono.just(new AgentListResponse(
+                agentRegistry.getMainAgentName(),
+                agentRegistry.getAllAgents().keySet(),
+                agentRegistry.agentCount()));
     }
 
     /**
      * 列出某用户在指定 Agent 下的全部会话。
      */
     @GetMapping("/sessions/{tenant}/{userId}")
-    public Mono<Map<String, Object>> listSessions(
+    public Mono<SessionListResponse> listSessions(
             @PathVariable String tenant,
             @PathVariable String userId,
             @RequestParam(value = "agentId", required = false) String agentId) {
         HarnessAgent agent = resolveAgent(agentId);
         String compositeUserId = compositeUserId(tenant, userId);
         Set<String> sessionIds = agent.getStateStore().listSessionIds(compositeUserId);
-        Map<String, Object> result = new HashMap<>();
-        result.put("userId", compositeUserId);
-        result.put("sessions", sessionIds);
-        result.put("count", sessionIds.size());
-        return Mono.just(result);
+        return Mono.just(new SessionListResponse(compositeUserId, sessionIds, sessionIds.size()));
     }
 
     /**
      * 查询会话的任务列表（来自 AgentState.tasksContext）。
      */
     @GetMapping("/sessions/{tenant}/{userId}/{sessionId}/tasks")
-    public Mono<Map<String, Object>> listTasks(
+    public Mono<TaskListResponse> listTasks(
             @PathVariable String tenant,
             @PathVariable String userId,
             @PathVariable String sessionId,
@@ -98,27 +87,20 @@ public class AdminController {
         String compositeUserId = compositeUserId(tenant, userId);
         String compositeSessionId = compositeSessionId(agent, sessionId);
 
-        Map<String, Object> result = new HashMap<>();
-        result.put("userId", compositeUserId);
-        result.put("sessionId", compositeSessionId);
-
         Optional<AgentState> state = loadAgentState(agent, compositeUserId, compositeSessionId);
         if (state.isPresent() && state.get().getTasksContext() != null) {
             List<Task> tasks = state.get().getTasksContext().getTasks();
-            result.put("tasks", toTaskMaps(tasks));
-            result.put("count", tasks.size());
-        } else {
-            result.put("tasks", List.of());
-            result.put("count", 0);
+            return Mono.just(new TaskListResponse(
+                    compositeUserId, compositeSessionId, toTaskViews(tasks), tasks.size()));
         }
-        return Mono.just(result);
+        return Mono.just(new TaskListResponse(compositeUserId, compositeSessionId, List.of(), 0));
     }
 
     /**
      * 查询 Plan 状态。
      */
     @GetMapping("/sessions/{tenant}/{userId}/{sessionId}/plan")
-    public Mono<Map<String, Object>> getPlanStatus(
+    public Mono<PlanStatusResponse> getPlanStatus(
             @PathVariable String tenant,
             @PathVariable String userId,
             @PathVariable String sessionId,
@@ -127,25 +109,22 @@ public class AdminController {
         String compositeUserId = compositeUserId(tenant, userId);
         String compositeSessionId = compositeSessionId(agent, sessionId);
 
-        Map<String, Object> result = new HashMap<>();
-        result.put("userId", compositeUserId);
-        result.put("sessionId", compositeSessionId);
-        result.put("planActive", agent.isPlanModeActive(compositeUserId, compositeSessionId));
-
         Optional<AgentState> state = loadAgentState(agent, compositeUserId, compositeSessionId);
-        if (state.isPresent() && state.get().getPlanModeContext() != null) {
-            result.put("currentPlanFile", state.get().getPlanModeContext().getCurrentPlanFile());
-        } else {
-            result.put("currentPlanFile", "");
+        String currentPlanFile = "";
+        if (state.isPresent() && state.get().getPlanModeContext() != null
+                && state.get().getPlanModeContext().getCurrentPlanFile() != null) {
+            currentPlanFile = state.get().getPlanModeContext().getCurrentPlanFile();
         }
-        return Mono.just(result);
+        return Mono.just(new PlanStatusResponse(
+                compositeUserId, compositeSessionId,
+                agent.isPlanModeActive(compositeUserId, compositeSessionId), currentPlanFile));
     }
 
     /**
      * 程序化进入 Plan Mode。
      */
     @PostMapping("/sessions/{tenant}/{userId}/{sessionId}:enter-plan-mode")
-    public Mono<Map<String, String>> enterPlanMode(
+    public Mono<OperationResponse> enterPlanMode(
             @PathVariable String tenant,
             @PathVariable String userId,
             @PathVariable String sessionId,
@@ -156,14 +135,14 @@ public class AdminController {
 
         agent.enterPlanMode(compositeUserId, compositeSessionId);
         log.info("enter-plan-mode: userId={}, sessionId={}", compositeUserId, compositeSessionId);
-        return Mono.just(Map.of("status", "ok", "message", "已进入 Plan Mode"));
+        return Mono.just(new OperationResponse("ok", "已进入 Plan Mode"));
     }
 
     /**
      * 程序化退出 Plan Mode（绕过 HITL，仅管理员）。
      */
     @PostMapping("/sessions/{tenant}/{userId}/{sessionId}:exit-plan-mode")
-    public Mono<Map<String, String>> exitPlanMode(
+    public Mono<OperationResponse> exitPlanMode(
             @PathVariable String tenant,
             @PathVariable String userId,
             @PathVariable String sessionId,
@@ -174,14 +153,14 @@ public class AdminController {
 
         agent.exitPlanMode(compositeUserId, compositeSessionId);
         log.info("exit-plan-mode: userId={}, sessionId={}", compositeUserId, compositeSessionId);
-        return Mono.just(Map.of("status", "ok", "message", "已退出 Plan Mode"));
+        return Mono.just(new OperationResponse("ok", "已退出 Plan Mode"));
     }
 
     /**
      * 查询权限模式。
      */
     @GetMapping("/sessions/{tenant}/{userId}/{sessionId}/permission-mode")
-    public Mono<Map<String, Object>> getPermissionMode(
+    public Mono<PermissionModeResponse> getPermissionMode(
             @PathVariable String tenant,
             @PathVariable String userId,
             @PathVariable String sessionId,
@@ -191,11 +170,8 @@ public class AdminController {
         String compositeSessionId = compositeSessionId(agent, sessionId);
 
         PermissionMode mode = agent.getPermissionMode(compositeUserId, compositeSessionId);
-        Map<String, Object> result = new HashMap<>();
-        result.put("userId", compositeUserId);
-        result.put("sessionId", compositeSessionId);
-        result.put("mode", mode != null ? mode.getValue() : PermissionMode.DEFAULT.getValue());
-        return Mono.just(result);
+        String modeValue = mode != null ? mode.getValue() : PermissionMode.DEFAULT.getValue();
+        return Mono.just(new PermissionModeResponse(compositeUserId, compositeSessionId, modeValue));
     }
 
     /**
@@ -204,21 +180,15 @@ public class AdminController {
      * 安全约束：{@code BYPASS} 仅允许在沙箱文件系统模式下使用。
      */
     @PutMapping("/sessions/{tenant}/{userId}/{sessionId}/permission-mode")
-    public Mono<Map<String, String>> setPermissionMode(
+    public Mono<PermissionModeResult> setPermissionMode(
             @PathVariable String tenant,
             @PathVariable String userId,
             @PathVariable String sessionId,
             @RequestParam(value = "agentId", required = false) String agentId,
-            @RequestBody String bodyJson) {
+            @RequestBody SetPermissionModeRequest request) {
         HarnessAgent agent = resolveAgent(agentId);
-        // 使用 fastjson 反序列化请求体，非法 JSON 返回 400
-        JSONObject body;
-        try {
-            body = JSON.parseObject(bodyJson);
-        } catch (JSONException e) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请求体不是合法 JSON");
-        }
-        String modeStr = (body != null) ? body.getString("mode") : null;
+        // 请求体由 Spring 自动反序列化为 bean，非法 JSON 返回 400
+        String modeStr = (request != null) ? request.mode() : null;
         PermissionMode mode = parsePermissionMode(modeStr);
 
         if (mode == PermissionMode.BYPASS && !isSandboxAgent(agentId)) {
@@ -231,7 +201,7 @@ public class AdminController {
         agent.setPermissionMode(compositeUserId, compositeSessionId, mode);
         log.info("set-permission-mode: userId={}, sessionId={}, mode={}",
                 compositeUserId, compositeSessionId, mode.getValue());
-        return Mono.just(Map.of("status", "ok", "mode", mode.getValue()));
+        return Mono.just(new PermissionModeResult("ok", mode.getValue()));
     }
 
     /**
@@ -276,21 +246,20 @@ public class AdminController {
     }
 
     /**
-     * 将任务列表映射为响应 JSON。
+     * 将任务列表转换为任务视图列表。
      */
-    private List<Map<String, Object>> toTaskMaps(List<Task> tasks) {
-        List<Map<String, Object>> list = new ArrayList<>(tasks.size());
+    private List<TaskView> toTaskViews(List<Task> tasks) {
+        List<TaskView> list = new ArrayList<>(tasks.size());
         for (Task task : tasks) {
-            Map<String, Object> map = new HashMap<>();
-            map.put("id", task.getId());
-            map.put("subject", task.getSubject());
-            map.put("description", task.getDescription());
-            map.put("state", task.getState() != null ? task.getState().name() : null);
-            map.put("owner", task.getOwner());
-            map.put("blocks", task.getBlocks());
-            map.put("blockedBy", task.getBlockedBy());
-            map.put("createdAt", task.getCreatedAt());
-            list.add(map);
+            list.add(new TaskView(
+                    task.getId(),
+                    task.getSubject(),
+                    task.getDescription(),
+                    task.getState() != null ? task.getState().name() : null,
+                    task.getOwner(),
+                    task.getBlocks(),
+                    task.getBlockedBy(),
+                    task.getCreatedAt()));
         }
         return list;
     }
