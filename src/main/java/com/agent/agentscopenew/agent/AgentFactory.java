@@ -23,7 +23,9 @@ import lombok.extern.slf4j.Slf4j;
 import java.io.IOException;
 import java.time.Duration;
 import java.time.format.DateTimeParseException;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -106,24 +108,93 @@ public final class AgentFactory {
                 log.warn("Agent [{}] 未知的文件系统模式 [{}]，回退到 LOCAL", p.name(), fsConfig.mode());
         }
 
-        // 记忆配置（消费 yml 中 flush-trigger / model 参数）
+        // 记忆配置（消费 yml 中 flush-trigger / model / 定制位参数）
         if (p.memoryEnabled()) {
-            MemoryConfig memoryConfig = MemoryConfig.builder()
+            MemoryConfig.Builder memoryBuilder = MemoryConfig.builder()
                     .flushTrigger(parseFlushTrigger(p.flushTrigger()))
-                    .model(p.resolveMemoryModel())
-                    .build();
-            builder.memory(memoryConfig);
+                    .model(p.resolveMemoryModel());
+            // 定制位：仅显式配置（非空/非负）时覆盖框架默认值
+            if (!p.memoryFlushPrompt().isBlank()) {
+                memoryBuilder.flushPrompt(p.memoryFlushPrompt());
+            }
+            if (!p.memoryConsolidationPrompt().isBlank()) {
+                memoryBuilder.consolidationPrompt(p.memoryConsolidationPrompt());
+            }
+            if (p.memoryConsolidationMaxTokens() >= 0) {
+                memoryBuilder.consolidationMaxTokens(p.memoryConsolidationMaxTokens());
+            }
+            if (!p.memoryConsolidationMinGap().isBlank()) {
+                Duration gap = parseDuration(p.memoryConsolidationMinGap());
+                if (gap != null) {
+                    memoryBuilder.consolidationMinGap(gap);
+                } else {
+                    log.warn("Agent [{}] 无法解析 consolidation-min-gap [{}]，使用框架默认",
+                            p.name(), p.memoryConsolidationMinGap());
+                }
+            }
+            if (p.memoryDailyFileRetentionDays() >= 0) {
+                memoryBuilder.dailyFileRetentionDays(p.memoryDailyFileRetentionDays());
+            }
+            if (p.memorySessionRetentionDays() >= 0) {
+                memoryBuilder.sessionRetentionDays(p.memorySessionRetentionDays());
+            }
+            builder.memory(memoryBuilder.build());
             log.info("Agent [{}] 记忆已启用, flushTrigger={}, model={}",
                     p.name(), p.flushTrigger(), p.resolveMemoryModel());
         }
 
-        // 上下文压缩
+        // 记忆完全关闭开关（FR-5.6）
+        if (p.disableMemoryTools()) {
+            builder.disableMemoryTools();
+            log.info("Agent [{}] 记忆工具已关闭（memory_search/session_list 等不再注册）", p.name());
+        }
+        if (p.disableMemoryHooks()) {
+            builder.disableMemoryHooks();
+            log.info("Agent [{}] 记忆后台维护已关闭（日归档/整合不再自动执行）", p.name());
+        }
+
+        // 上下文压缩（trigger-tokens 为溢出兜底：上下文接近上限时自动压缩，FR-6.2）
         if (p.compactionEnabled()) {
-            builder.compaction(CompactionConfig.builder()
+            CompactionConfig.Builder compactionBuilder = CompactionConfig.builder()
                     .triggerMessages(p.triggerMessages())
-                    .keepMessages(p.keepMessages())
-                    .build());
-            builder.toolResultEviction(ToolResultEvictionConfig.defaults());
+                    .keepMessages(p.keepMessages());
+            if (p.compactionTriggerTokens() >= 0) {
+                compactionBuilder.triggerTokens(p.compactionTriggerTokens());
+            }
+            if (p.compactionKeepTokens() >= 0) {
+                compactionBuilder.keepTokens(p.compactionKeepTokens());
+            }
+            if (!p.compactionSummaryPrompt().isBlank()) {
+                compactionBuilder.summaryPrompt(p.compactionSummaryPrompt());
+            }
+            String compactionModelRaw = p.compactionModel();
+            if (compactionModelRaw != null && !compactionModelRaw.isBlank()
+                    && !"@{}".equals(compactionModelRaw)) {
+                compactionBuilder.model(p.resolveCompactionModel());
+            }
+            builder.compaction(compactionBuilder.build());
+
+            // 工具结果卸载（FR-6.3）：显式配置时覆盖默认，否则用框架默认
+            if (p.evictionMaxResultChars() >= 0 || p.evictionPreviewChars() >= 0
+                    || !p.evictionExcludedTools().isBlank()) {
+                ToolResultEvictionConfig.Builder evictionBuilder = ToolResultEvictionConfig.builder();
+                if (p.evictionMaxResultChars() >= 0) {
+                    evictionBuilder.maxResultChars(p.evictionMaxResultChars());
+                }
+                if (p.evictionPreviewChars() >= 0) {
+                    evictionBuilder.previewChars(p.evictionPreviewChars());
+                }
+                if (!p.evictionExcludedTools().isBlank()) {
+                    evictionBuilder.excludedToolNames(parseToolNames(p.evictionExcludedTools()));
+                }
+                builder.toolResultEviction(evictionBuilder.build());
+            } else {
+                builder.toolResultEviction(ToolResultEvictionConfig.defaults());
+            }
+            log.info("Agent [{}] 上下文压缩已启用, triggerMessages={}, triggerTokens={}, keepMessages={}",
+                    p.name(), p.triggerMessages(),
+                    p.compactionTriggerTokens() >= 0 ? p.compactionTriggerTokens() : "默认",
+                    p.keepMessages());
         }
 
         // 技能市场（按配置顺序叠加，后注册覆盖先注册）
@@ -213,6 +284,23 @@ public final class AgentFactory {
             }
         }
         log.info("Agent [{}] 注册内置子 Agent {} 个: {}", p.name(), registered, enabled);
+    }
+
+    /**
+     * 解析工具结果卸载排除工具列表（逗号分隔）。
+     *
+     * @param raw 配置值，如 "write_file,edit_file"
+     * @return 去空白后的工具名集合
+     */
+    private Set<String> parseToolNames(String raw) {
+        Set<String> names = new HashSet<>();
+        for (String part : raw.split(",")) {
+            String name = part.trim();
+            if (!name.isEmpty()) {
+                names.add(name);
+            }
+        }
+        return names;
     }
 
     /**

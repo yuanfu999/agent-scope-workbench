@@ -33,7 +33,22 @@ public record AgentProperties(
         @DefaultValue({"classpath", "git"}) List<String> skillsRepositories,
         @DefaultValue("") String skillsGitUrl,
         @DefaultValue({"reviewer", "researcher", "note-taker"}) List<String> subagents,
-        @DefaultValue("") String label) {
+        @DefaultValue("") String label,
+        @DefaultValue("") String memoryFlushPrompt,
+        @DefaultValue("") String memoryConsolidationPrompt,
+        @DefaultValue("-1") int memoryConsolidationMaxTokens,
+        @DefaultValue("") String memoryConsolidationMinGap,
+        @DefaultValue("-1") int memoryDailyFileRetentionDays,
+        @DefaultValue("-1") int memorySessionRetentionDays,
+        @DefaultValue("false") boolean disableMemoryTools,
+        @DefaultValue("false") boolean disableMemoryHooks,
+        @DefaultValue("-1") int compactionTriggerTokens,
+        @DefaultValue("-1") int compactionKeepTokens,
+        @DefaultValue("") String compactionSummaryPrompt,
+        @DefaultValue("@{" + "}" + "") String compactionModel,
+        @DefaultValue("-1") int evictionMaxResultChars,
+        @DefaultValue("-1") int evictionPreviewChars,
+        @DefaultValue("") String evictionExcludedTools) {
 
     /**
      * 获取工作区路径。
@@ -60,6 +75,16 @@ public record AgentProperties(
     }
 
     /**
+     * 获取压缩辅助模型，若未设置（含哨兵默认值 "@{}"）则依次回退记忆模型、主模型。
+     */
+    public String resolveCompactionModel() {
+        if (compactionModel == null || compactionModel.isBlank() || "@{}".equals(compactionModel)) {
+            return resolveMemoryModel();
+        }
+        return compactionModel;
+    }
+
+    /**
      * 默认 Agent 配置，用于测试/兜底。
      */
     public static AgentProperties defaults() {
@@ -73,7 +98,9 @@ public record AgentProperties(
                 SandboxConfig.defaults(),
                 List.of("classpath", "git"), "",
                 List.of("reviewer", "researcher", "note-taker"),
-                "");
+                "",
+                "", "", -1, "", -1, -1, false, false,
+                -1, -1, "", null, -1, -1, "");
     }
 
     /**
@@ -107,6 +134,21 @@ public record AgentProperties(
         private String skillsGitUrl = "";
         private List<String> subagents = List.of("reviewer", "researcher", "note-taker");
         private String label = "";
+        private String memoryFlushPrompt = "";
+        private String memoryConsolidationPrompt = "";
+        private int memoryConsolidationMaxTokens = -1;
+        private String memoryConsolidationMinGap = "";
+        private int memoryDailyFileRetentionDays = -1;
+        private int memorySessionRetentionDays = -1;
+        private boolean disableMemoryTools = false;
+        private boolean disableMemoryHooks = false;
+        private int compactionTriggerTokens = -1;
+        private int compactionKeepTokens = -1;
+        private String compactionSummaryPrompt = "";
+        private String compactionModel = null;
+        private int evictionMaxResultChars = -1;
+        private int evictionPreviewChars = -1;
+        private String evictionExcludedTools = "";
 
         public Builder name(String name) { this.name = name; return this; }
         public Builder model(String model) { this.model = model; return this; }
@@ -122,13 +164,34 @@ public record AgentProperties(
         public Builder subagents(List<String> subagents) { this.subagents = subagents; return this; }
 
         public Builder label(String label) { this.label = label; return this; }
+        public Builder memoryFlushPrompt(String memoryFlushPrompt) { this.memoryFlushPrompt = memoryFlushPrompt; return this; }
+        public Builder memoryConsolidationPrompt(String memoryConsolidationPrompt) { this.memoryConsolidationPrompt = memoryConsolidationPrompt; return this; }
+        public Builder memoryConsolidationMaxTokens(int memoryConsolidationMaxTokens) { this.memoryConsolidationMaxTokens = memoryConsolidationMaxTokens; return this; }
+        public Builder memoryConsolidationMinGap(String memoryConsolidationMinGap) { this.memoryConsolidationMinGap = memoryConsolidationMinGap; return this; }
+        public Builder memoryDailyFileRetentionDays(int memoryDailyFileRetentionDays) { this.memoryDailyFileRetentionDays = memoryDailyFileRetentionDays; return this; }
+        public Builder memorySessionRetentionDays(int memorySessionRetentionDays) { this.memorySessionRetentionDays = memorySessionRetentionDays; return this; }
+        public Builder disableMemoryTools(boolean disableMemoryTools) { this.disableMemoryTools = disableMemoryTools; return this; }
+        public Builder disableMemoryHooks(boolean disableMemoryHooks) { this.disableMemoryHooks = disableMemoryHooks; return this; }
+        public Builder compactionTriggerTokens(int compactionTriggerTokens) { this.compactionTriggerTokens = compactionTriggerTokens; return this; }
+        public Builder compactionKeepTokens(int compactionKeepTokens) { this.compactionKeepTokens = compactionKeepTokens; return this; }
+        public Builder compactionSummaryPrompt(String compactionSummaryPrompt) { this.compactionSummaryPrompt = compactionSummaryPrompt; return this; }
+        public Builder compactionModel(String compactionModel) { this.compactionModel = compactionModel; return this; }
+        public Builder evictionMaxResultChars(int evictionMaxResultChars) { this.evictionMaxResultChars = evictionMaxResultChars; return this; }
+        public Builder evictionPreviewChars(int evictionPreviewChars) { this.evictionPreviewChars = evictionPreviewChars; return this; }
+        public Builder evictionExcludedTools(String evictionExcludedTools) { this.evictionExcludedTools = evictionExcludedTools; return this; }
 
         public AgentProperties build() {
             return new AgentProperties(name, model, sysPrompt, workspace, steps, temperature,
                     topP, memoryModel, flushTrigger, memoryEnabled, compactionEnabled,
                     triggerMessages, keepMessages, planModeEnabled, allowShellInPlanMode,
                     planDirectory, taskListEnabled, filesystem, sandbox,
-                    skillsRepositories, skillsGitUrl, subagents, label);
+                    skillsRepositories, skillsGitUrl, subagents, label,
+                    memoryFlushPrompt, memoryConsolidationPrompt, memoryConsolidationMaxTokens,
+                    memoryConsolidationMinGap, memoryDailyFileRetentionDays,
+                    memorySessionRetentionDays, disableMemoryTools, disableMemoryHooks,
+                    compactionTriggerTokens, compactionKeepTokens, compactionSummaryPrompt,
+                    compactionModel, evictionMaxResultChars, evictionPreviewChars,
+                    evictionExcludedTools);
         }
     }
 }

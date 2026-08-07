@@ -5,6 +5,7 @@ import com.agent.agentscopenew.dto.request.ChatRequest;
 import com.agent.agentscopenew.dto.response.ChatResponse;
 import com.agent.agentscopenew.security.TenantContext;
 
+import io.agentscope.core.event.RequireUserConfirmEvent;
 import io.agentscope.harness.agent.gateway.channel.chatui.ChatUiChannel;
 import io.agentscope.harness.agent.gateway.channel.chatui.SendOptions;
 
@@ -40,6 +41,7 @@ import java.time.Duration;
 public class ChatController {
 
     private final AgentRegistry agentRegistry;
+    private final PendingConfirmRegistry pendingConfirmRegistry;
 
     /**
      * 非流式对话接口。
@@ -123,21 +125,15 @@ public class ChatController {
             eventFlux = channel.sendStream(options, message);
         }
 
-        return eventFlux
-                .index()
-                .map(tuple -> {
-                    long index = tuple.getT1();
-                    io.agentscope.core.event.AgentEvent event = tuple.getT2();
-                    String json = SseEventMapper.toJson(event, index);
-                    if (json == null) {
-                        return "";
-                    }
-                    // 只输出纯 JSON，data: 前缀与换行由 SSE 编码器统一添加
-                    return json;
-                })
-                .filter(s -> !s.isEmpty())
-                .concatWithValues(SseEventMapper.doneEvent())
-                .doOnError(e -> log.error("SSE 流错误", e));
+        return SseEventMapper.toStream(eventFlux.doOnNext(event -> {
+            // FR-7.3：拦截待确认事件，登记供管理端审批
+            if (event instanceof RequireUserConfirmEvent e) {
+                pendingConfirmRegistry.register(
+                        ctx.userId(), ctx.sessionId(), e.getReplyId(), e.getToolCalls());
+                log.info("注册待确认请求: user={}, session={}, replyId={}, tools={}",
+                        ctx.userId(), ctx.sessionId(), e.getReplyId(), e.getToolCalls().size());
+            }
+        }));
     }
 
     /**

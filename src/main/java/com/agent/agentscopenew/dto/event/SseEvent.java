@@ -3,6 +3,8 @@ package com.agent.agentscopenew.dto.event;
 import lombok.Builder;
 import lombok.Data;
 
+import java.util.List;
+
 /**
  * SSE 事件 bean：按事件类型携带对应业务字段。
  * <p>
@@ -44,4 +46,10 @@ public class SseEvent {
 
     /** 未知事件原始类型（前向兼容透传）。 */
     private String rawType;
+
+    /** 待确认回复 ID（REQUIRE_CONFIRM）。 */
+    private String replyId;
+
+    /** 待确认工具调用列表（REQUIRE_CONFIRM）。 */
+    private List<ConfirmToolView> tools;
 }

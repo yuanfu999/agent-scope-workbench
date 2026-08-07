@@ -23,10 +23,23 @@ workbench:
         enabled: true
         flush-trigger: THROTTLED(10m)
         model: ${MEMORY_MODEL:}
+        # 定制位（可选，留空/负值使用框架默认）：
+        # flush-prompt: ""             # 记忆 Flush 提示词（FR-5.3）
+        # consolidation-prompt: ""     # 记忆整合提示词（FR-5.3）
+        # consolidation-max-tokens: -1  # 整合最大 token 数，默认 4000（FR-5.3）
+        # consolidation-min-gap: ""    # 整合最小间隔，如 24h / PT24H（FR-5.3）
+        daily-file-retention-days: 90   # 日流水账保留天数，默认 90（FR-5.3）
+        session-retention-days: 180     # 会话记录保留天数，默认 180（FR-5.3）
+        disable-tools: false            # true 时移除记忆/会话查询工具（FR-5.6）
+        disable-hooks: false            # true 时关闭后台记忆维护（FR-5.6）
       compaction:
         enabled: true
         trigger-messages: 40
         keep-messages: 10
+        trigger-tokens: -1              # token 触发阈值，>0 启用溢出兜底（FR-6.2）
+        keep-tokens: -1                 # 压缩后保留 token 数，默认自动计算（FR-6.2）
+        # summary-prompt: ""           # 压缩摘要提示词，留空用内置（FR-6.1）
+        # model: ${COMPACTION_MODEL:}  # 压缩辅助模型，留空跟随主模型（FR-1.6）
       plan-mode:
         enabled: true
         allow-shell: false
@@ -67,10 +80,23 @@ workbench:
         enabled: true
         flush-trigger: THROTTLED(10m)
         model: ${MEMORY_MODEL:}
+        # 定制位（可选，留空/负值使用框架默认）：
+        # flush-prompt: ""             # 记忆 Flush 提示词（FR-5.3）
+        # consolidation-prompt: ""     # 记忆整合提示词（FR-5.3）
+        # consolidation-max-tokens: -1  # 整合最大 token 数，默认 4000（FR-5.3）
+        # consolidation-min-gap: ""    # 整合最小间隔，如 24h / PT24H（FR-5.3）
+        daily-file-retention-days: 90   # 日流水账保留天数，默认 90（FR-5.3）
+        session-retention-days: 180     # 会话记录保留天数，默认 180（FR-5.3）
+        disable-tools: false            # true 时移除记忆/会话查询工具（FR-5.6）
+        disable-hooks: false            # true 时关闭后台记忆维护（FR-5.6）
       compaction:
         enabled: true
         trigger-messages: 40
         keep-messages: 10
+        trigger-tokens: -1              # token 触发阈值，>0 启用溢出兜底（FR-6.2）
+        keep-tokens: -1                 # 压缩后保留 token 数，默认自动计算（FR-6.2）
+        # summary-prompt: ""           # 压缩摘要提示词，留空用内置（FR-6.1）
+        # model: ${COMPACTION_MODEL:}  # 压缩辅助模型，留空跟随主模型（FR-1.6）
       plan-mode:
         enabled: true
         allow-shell: false

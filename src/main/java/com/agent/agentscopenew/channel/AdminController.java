@@ -2,11 +2,14 @@ package com.agent.agentscopenew.channel;
 
 import com.agent.agentscopenew.agent.AgentRegistry;
 import com.agent.agentscopenew.config.WorkbenchProperties;
+import com.agent.agentscopenew.dto.event.ConfirmToolView;
+import com.agent.agentscopenew.dto.request.ConfirmRequest;
 import com.agent.agentscopenew.dto.request.SetPermissionModeRequest;
 import com.agent.agentscopenew.dto.response.AgentListResponse;
 import com.agent.agentscopenew.dto.response.ModelInfo;
 import com.agent.agentscopenew.dto.response.ModelListResponse;
 import com.agent.agentscopenew.dto.response.OperationResponse;
+import com.agent.agentscopenew.dto.response.PendingConfirmResponse;
 import com.agent.agentscopenew.dto.response.PermissionModeResponse;
 import com.agent.agentscopenew.dto.response.PermissionModeResult;
 import com.agent.agentscopenew.dto.response.PlanStatusResponse;
@@ -15,6 +18,10 @@ import com.agent.agentscopenew.dto.response.TaskListResponse;
 import com.agent.agentscopenew.dto.response.TaskView;
 import com.agent.agentscopenew.security.TenantContext;
 
+import io.agentscope.core.agent.RuntimeContext;
+import io.agentscope.core.event.ConfirmResult;
+import io.agentscope.core.message.Msg;
+import io.agentscope.core.message.MsgRole;
 import io.agentscope.core.permission.PermissionMode;
 import io.agentscope.core.state.AgentState;
 import io.agentscope.core.state.AgentStateStore;
@@ -25,6 +32,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -34,10 +42,12 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -61,6 +71,7 @@ public class AdminController {
 
     private final AgentRegistry agentRegistry;
     private final WorkbenchProperties workbenchProperties;
+    private final PendingConfirmRegistry pendingConfirmRegistry;
 
     /**
      * 查询 Agent 注册表。
@@ -210,9 +221,8 @@ public class AdminController {
             @PathVariable String userId,
             @PathVariable String sessionId,
             @RequestParam(value = "agentId", required = false) String agentId,
-            @RequestBody SetPermissionModeRequest request) {
+            @RequestBody(required = false) SetPermissionModeRequest request) {
         HarnessAgent agent = resolveAgent(agentId);
-        // 请求体由 Spring 自动反序列化为 bean，非法 JSON 返回 400
         String modeStr = (request != null) ? request.mode() : null;
         PermissionMode mode = parsePermissionMode(modeStr);
 
@@ -227,6 +237,76 @@ public class AdminController {
         log.info("set-permission-mode: userId={}, sessionId={}, mode={}",
                 compositeUserId, compositeSessionId, mode.getValue());
         return Mono.just(new PermissionModeResult("ok", mode.getValue()));
+    }
+
+    /**
+     * 查询待确认的工具调用（FR-7.3 Plan 批准/拒绝 HITL）。
+     */
+    @GetMapping("/sessions/{tenant}/{userId}/{sessionId}/pending-confirm")
+    public Mono<PendingConfirmResponse> getPendingConfirm(
+            @PathVariable String tenant,
+            @PathVariable String userId,
+            @PathVariable String sessionId,
+            @RequestParam(value = "agentId", required = false) String agentId) {
+        HarnessAgent agent = resolveAgent(agentId);
+        String compositeUserId = compositeUserId(tenant, userId);
+        String compositeSessionId = compositeSessionId(agent, sessionId);
+
+        Optional<PendingConfirmRegistry.PendingConfirm> record =
+                pendingConfirmRegistry.lookup(compositeUserId, compositeSessionId);
+        if (record.isEmpty()) {
+            return Mono.just(new PendingConfirmResponse(false, "", List.of(), null));
+        }
+        PendingConfirmRegistry.PendingConfirm pc = record.get();
+        List<ConfirmToolView> tools = pc.toolCalls().stream()
+                .map(tc -> new ConfirmToolView(tc.getId(), tc.getName(), tc.getInput()))
+                .toList();
+        return Mono.just(new PendingConfirmResponse(true, pc.replyId(), tools, pc.createdAt()));
+    }
+
+    /**
+     * 提交工具调用审批结果（FR-7.3）。
+     * <p>
+     * 批准：以 ALLOWED 状态恢复工具执行并进入 BUILD 模式；拒绝：以 DENIED
+     * 结果回灌，Agent 留在 PLAN 模式继续修订。响应为 SSE 事件流，前端
+     * 复用对话渲染逻辑继续展示后续输出。
+     */
+    @PostMapping(value = "/sessions/{tenant}/{userId}/{sessionId}:confirm",
+            produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public Flux<String> confirmToolCall(
+            @PathVariable String tenant,
+            @PathVariable String userId,
+            @PathVariable String sessionId,
+            @RequestParam(value = "agentId", required = false) String agentId,
+            @RequestBody(required = false) ConfirmRequest request) {
+        HarnessAgent agent = resolveAgent(agentId);
+        String compositeUserId = compositeUserId(tenant, userId);
+        String compositeSessionId = compositeSessionId(agent, sessionId);
+
+        Optional<PendingConfirmRegistry.PendingConfirm> record =
+                pendingConfirmRegistry.lookup(compositeUserId, compositeSessionId);
+        if (record.isEmpty()) {
+            return Flux.just(SseEventMapper.errorEvent("没有待确认的工具调用"));
+        }
+        pendingConfirmRegistry.remove(compositeUserId, compositeSessionId);
+        boolean confirmed = request != null && request.confirmed();
+
+        List<ConfirmResult> results = record.get().toolCalls().stream()
+                .map(tc -> new ConfirmResult(confirmed, tc))
+                .toList();
+        Msg confirmMsg = Msg.builder()
+                .role(MsgRole.USER)
+                .textContent(confirmed ? "用户批准了以上工具调用，继续执行。" : "用户拒绝了以上工具调用，请调整方案。")
+                .metadata(Map.of(Msg.METADATA_CONFIRM_RESULTS, results))
+                .build();
+        RuntimeContext runtimeContext = RuntimeContext.builder()
+                .sessionId(compositeSessionId)
+                .userId(compositeUserId)
+                .build();
+
+        log.info("confirm: user={}, session={}, confirmed={}, tools={}",
+                compositeUserId, compositeSessionId, confirmed, results.size());
+        return SseEventMapper.toStream(agent.streamEvents(List.of(confirmMsg), runtimeContext));
     }
 
     /**

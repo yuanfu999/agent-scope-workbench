@@ -179,6 +179,38 @@
     cursor: pointer;
   }
 
+  /* 审批卡片（FR-7.3 Plan 批准/拒绝 HITL） */
+  .confirm-card {
+    align-self: flex-start;
+    width: 78%;
+    background: #fff9f0;
+    border: 1px solid #ffe8cc;
+    border-radius: var(--radius);
+    font-size: 13px;
+    padding: 10px 14px;
+  }
+  .confirm-card.pending { opacity: .7; }
+  .confirm-title { font-weight: 600; color: var(--warn); margin-bottom: 8px; }
+  .confirm-tool {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    margin-bottom: 6px;
+  }
+  .confirm-tool .name { font-weight: 600; }
+  .confirm-tool .id { color: var(--muted); font-size: 11px; margin-left: 6px; }
+  .confirm-tool .args {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 4px;
+    max-height: 120px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .confirm-card .btn-row { display: flex; gap: 8px; margin-top: 8px; }
+
   /* 输入区 */
   .input-bar {
     background: var(--panel);
@@ -530,6 +562,10 @@ function handleEvent(evt, bubble, toolCards) {
       renderSubagentNote(evt);
       break;
 
+    case "REQUIRE_CONFIRM":
+      renderConfirmCard(evt, bubble);
+      break;
+
     case "AGENT_END":
       if (bubble.dataset.typing && bubble.textContent.length === 0) {
         bubble.textContent = "(空回复)";
@@ -596,6 +632,102 @@ function renderSubagentNote(evt) {
   note.appendChild(btn);
   els.messages.appendChild(note);
   scrollBottom();
+}
+
+/* ================= Plan 审批（FR-7.3） ================= */
+function renderConfirmCard(evt, bubble) {
+  bubble.removeAttribute("data-typing");
+  const card = document.createElement("div");
+  card.className = "confirm-card";
+  const title = document.createElement("div");
+  title.className = "confirm-title";
+  title.textContent = "等待审批：Agent 请求执行以下工具";
+  card.appendChild(title);
+
+  (evt.tools || []).forEach((t) => {
+    const row = document.createElement("div");
+    row.className = "confirm-tool";
+    row.innerHTML =
+      '<span class="name">' + esc(t.name || "工具") + "</span>" +
+      '<span class="id">' + esc(t.id || "") + "</span>" +
+      '<pre class="args">' + esc(JSON.stringify(t.arguments || {}, null, 2)) + "</pre>";
+    card.appendChild(row);
+  });
+
+  const btnRow = document.createElement("div");
+  btnRow.className = "btn-row";
+  const ok = document.createElement("button");
+  ok.className = "btn primary";
+  ok.textContent = "批准执行";
+  const no = document.createElement("button");
+  no.className = "btn danger";
+  no.textContent = "拒绝（继续规划）";
+  btnRow.appendChild(ok);
+  btnRow.appendChild(no);
+  card.appendChild(btnRow);
+  els.messages.appendChild(card);
+  scrollBottom();
+
+  ok.addEventListener("click", () => submitConfirm(true, card, title, btnRow));
+  no.addEventListener("click", () => submitConfirm(false, card, title, btnRow));
+}
+
+/**
+ * 提交审批结果：POST :confirm 后，后续 Agent 输出以 SSE 流形式追加到新气泡。
+ */
+async function submitConfirm(confirmed, card, title, btnRow) {
+  if (card.classList.contains("pending")) {
+    return;
+  }
+  card.classList.add("pending");
+  btnRow.querySelectorAll("button").forEach((b) => (b.disabled = true));
+  title.textContent = confirmed ? "已批准，继续执行..." : "已拒绝，Agent 继续规划...";
+
+  const tenant = document.getElementById("f-tenant").value.trim() || "tenant1";
+  const user = document.getElementById("f-user").value.trim() || "user1";
+  const url = apiUrl("/admin/sessions/" + encodeURIComponent(tenant) + "/" + encodeURIComponent(user) +
+    "/" + currentSessionId() + ":confirm?" + currentAgentParam().replace(/^&/, ""));
+  try {
+    const r = await fetch(url, {
+      method: "POST",
+      headers: Object.assign(headers(), { "Content-Type": "application/json" }),
+      body: JSON.stringify({ confirmed: confirmed }),
+    });
+    if (!r.ok) {
+      const body = await r.text();
+      title.textContent = "提交失败: " + body;
+      card.classList.remove("pending");
+      btnRow.querySelectorAll("button").forEach((b) => (b.disabled = false));
+      return;
+    }
+    // 复用 SSE 解析渲染后续输出（可能再次出现审批卡片）
+    const bubble = addTypingBubble();
+    const toolCards = new Map();
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buffer = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      buffer += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buffer.indexOf("\n\n")) >= 0) {
+        const chunk = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+        parseSseChunk(chunk, bubble, toolCards);
+      }
+    }
+    if (bubble.dataset.typing && bubble.textContent.length === 0) {
+      bubble.remove();
+    }
+  } catch (e) {
+    console.error(e);
+    title.textContent = "提交失败: " + e.message;
+    card.classList.remove("pending");
+    btnRow.querySelectorAll("button").forEach((b) => (b.disabled = false));
+  }
 }
 
 /* ================= 子 Agent Tab ================= */
@@ -709,13 +841,14 @@ function syncModelFromAgent() {
 
 /* ================= 管理面板 ================= */
 /**
- * 当前会话 ID：显式输入时用输入值，缺省与聊天默认会话一致（tenant:user）。
+ * 当前会话 ID：显式输入时用输入值，缺省与聊天默认会话一致（tenant__user，
+ * 分隔符与后端 TenantContext.KEY_SEPARATOR 对齐）。
  */
 function currentSessionId() {
   const tenant = document.getElementById("f-tenant").value.trim() || "tenant1";
   const user = document.getElementById("f-user").value.trim() || "user1";
   const raw = document.getElementById("f-session").value.trim();
-  return raw ? raw : tenant + ":" + user;
+  return raw ? raw : tenant + "__" + user;
 }
 
 function currentAgentParam() {
