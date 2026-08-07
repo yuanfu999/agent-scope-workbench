@@ -13,6 +13,7 @@ import com.agent.agentscopenew.dto.response.PlanStatusResponse;
 import com.agent.agentscopenew.dto.response.SessionListResponse;
 import com.agent.agentscopenew.dto.response.TaskListResponse;
 import com.agent.agentscopenew.dto.response.TaskView;
+import com.agent.agentscopenew.security.TenantContext;
 
 import io.agentscope.core.permission.PermissionMode;
 import io.agentscope.core.state.AgentState;
@@ -46,7 +47,8 @@ import java.util.Set;
  * 提供会话管理、任务列表、Plan Mode 操作、权限模式切换等后台管理能力。
  * 状态读写直接走 {@link HarnessAgent} 的官方管理 API 与共享
  * {@link AgentStateStore}，userId / sessionId 采用与 ChatController
- * 一致的复合键格式（{@code tenant:userId} / {@code agentId:sessionId}）。
+ * 一致的复合键格式（{@code tenant__userId} / {@code agentId__sessionId}），
+ * 分隔符见 {@link TenantContext#KEY_SEPARATOR}。
  */
 @Slf4j
 @RequiredArgsConstructor
@@ -247,14 +249,14 @@ public class AdminController {
      * 组装复合 userId（存储键第一分量）。
      */
     private String compositeUserId(String tenant, String userId) {
-        return tenant + ":" + userId;
+        return tenant + TenantContext.KEY_SEPARATOR + userId;
     }
 
     /**
      * 组装复合 sessionId（存储键第二分量）。
      */
     private String compositeSessionId(HarnessAgent agent, String sessionId) {
-        return agent.getName() + ":" + sessionId;
+        return agent.getName() + TenantContext.KEY_SEPARATOR + sessionId;
     }
 
     /**

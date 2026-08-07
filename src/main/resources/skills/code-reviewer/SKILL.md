@@ -1,3 +1,8 @@
+---
+name: code-reviewer
+description: 审查代码质量。当需要审查代码质量时，使用此技能。
+---
+
 # 代码审查技能
 
 ## 能力

@@ -5,7 +5,7 @@ import java.util.Set;
 /**
  * 会话列表响应。
  *
- * @param userId   复合 userId（tenant:userId）
+ * @param userId   复合 userId（tenant__userId）
  * @param sessions 会话 ID 集合
  * @param count    会话数量
  */

@@ -29,19 +29,28 @@ class AgentScopeWorkbenchApplicationTests {
     @Test
     void testTenantContextUserIdFormat() {
         TenantContext ctx = new TenantContext("tenant-1", "user-1", "sid", "agent-1");
-        assertEquals("tenant-1:user-1", ctx.userId());
+        assertEquals("tenant-1__user-1", ctx.userId());
     }
 
     @Test
     void testTenantContextFromHeaders() {
         TenantContext ctx = TenantContext.fromHeaders("t1", "u1", "sid", "agent-1");
-        assertEquals("t1:u1", ctx.userId());
+        assertEquals("t1__u1", ctx.userId());
     }
 
     @Test
     void testTenantContextDefaultValues() {
         TenantContext ctx = TenantContext.fromHeaders(null, null, "sid", "agent-1");
-        assertEquals("default:anonymous", ctx.userId());
+        assertEquals("default__anonymous", ctx.userId());
+    }
+
+    @Test
+    void testTenantContextUserIdIsWindowsPathSafe() {
+        // 复合键必须可直接用作 Windows 文件系统路径（USER 隔离目录）
+        TenantContext ctx = TenantContext.fromHeaders("tenant-a", "user-b", "sid", "agent-1");
+        assertFalse(ctx.userId().contains(":"));
+        assertFalse(ctx.userId().contains("/"));
+        assertFalse(ctx.userId().contains("\\"));
     }
 
     @Test

@@ -142,12 +142,16 @@ public class ChatController {
 
     /**
      * 解析会话 ID：如果未提供则按 userId 自动生成稳定 session。
+     * <p>
+     * 复合键分隔符统一使用 {@link TenantContext#KEY_SEPARATOR}，
+     * 保证 userId / sessionId 均可安全用作 Windows 文件系统路径。
      */
     private String resolveSessionId(String rawSessionId, String agentId, String tenantId, String userId) {
+        String separator = TenantContext.KEY_SEPARATOR;
         if (rawSessionId != null && !rawSessionId.isBlank()) {
-            return agentId + ":" + rawSessionId;
+            return agentId + separator + rawSessionId;
         }
         // 按 userId 生成稳定 session（同一用户的会话可恢复）
-        return agentId + ":" + tenantId + ":" + userId;
+        return agentId + separator + tenantId + separator + userId;
     }
 }
