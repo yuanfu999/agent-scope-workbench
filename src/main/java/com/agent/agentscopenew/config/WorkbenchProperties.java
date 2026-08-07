@@ -18,6 +18,7 @@ public record WorkbenchProperties(
         @DefaultValue("rnd-assistant") String mainAgent,
         @DefaultValue("dev") String activeProfile,
         StoreConfig store,
+        ObservabilityConfig observability,
         List<AgentProperties> agents) {
 
     /**
@@ -78,11 +79,29 @@ public record WorkbenchProperties(
     }
 
     /**
-     * 存储配置。
+     * 存储配置（FR-10.1/FR-10.2）。
+     *
+     * @param type      存储类型：json-file（dev 默认，本地文件）/ redis（prod，分布式）/ mysql（预留）
+     * @param redisUrl  Redis 连接 URL，如 {@code redis://localhost:6379}；type=redis 时必填
+     * @param keyPrefix 分布式存储键前缀（默认 {@code agentscope:workbench}，租户隔离键基址）
      */
     public record StoreConfig(
             @DefaultValue("json-file") String type,
-            @DefaultValue("") String redisUrl) {
+            @DefaultValue("") String redisUrl,
+            @DefaultValue("agentscope:workbench") String keyPrefix) {
+    }
+
+    /**
+     * 可观测性配置（FR-10.5）。
+     *
+     * @param enabled      是否启用 OTel（默认 false，dev 零开销）
+     * @param otlpEndpoint OTLP gRPC 端点（默认 {@code http://localhost:4317}）
+     * @param serviceName  上报服务名（默认 {@code agentscope-workbench}）
+     */
+    public record ObservabilityConfig(
+            @DefaultValue("false") boolean enabled,
+            @DefaultValue("http://localhost:4317") String otlpEndpoint,
+            @DefaultValue("agentscope-workbench") String serviceName) {
     }
 
     /**
@@ -91,7 +110,8 @@ public record WorkbenchProperties(
     public static WorkbenchProperties defaults() {
         return new WorkbenchProperties(
                 "_default", "rnd-assistant", "dev",
-                new StoreConfig("json-file", ""),
+                new StoreConfig("json-file", "", "agentscope:workbench"),
+                new ObservabilityConfig(false, "http://localhost:4317", "agentscope-workbench"),
                 List.of(AgentProperties.defaults()));
     }
 }

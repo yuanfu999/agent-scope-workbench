@@ -78,6 +78,25 @@
             <version>${agentscope.version}</version>
         </dependency>
 
+        <!-- AgentScope Redis 扩展 (RedisDistributedStore：状态/文件/快照/守卫一键注入，M5 FR-10.1) -->
+        <dependency>
+            <groupId>io.agentscope</groupId>
+            <artifactId>agentscope-extensions-redis</artifactId>
+            <version>${agentscope.version}</version>
+        </dependency>
+
+        <!-- OpenTelemetry SDK (M5 FR-10.5 可观测性，版本 1.62.0 与 Spring Boot 4.1 BOM 解析的 opentelemetry-api 1.62.0 对齐) -->
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-sdk</artifactId>
+            <version>1.62.0</version>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-exporter-otlp</artifactId>
+            <version>1.62.0</version>
+        </dependency>
+
         <!-- AgentScope Spring Boot Starter (自动装配)
              排除聚合包 agentscope：与 core/harness 拆分包含重复类，避免运行时类加载冲突 -->
         <dependency>

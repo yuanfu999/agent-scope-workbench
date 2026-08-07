@@ -6,8 +6,15 @@ workbench:
   main-agent: rnd-assistant-pro
   active-profile: ${SPRING_PROFILES_ACTIVE:dev}
   store:
+    # 状态存储：json-file（dev 本地文件）/ redis（prod 分布式，FR-10.1）；未知类型启动报错
     type: ${STORE_TYPE:json-file}
-    redis-url: ${REDIS_URL:}
+    redis-url: ${REDIS_URL:}          # type=redis 必填，如 redis://localhost:6379（FR-10.2）
+    key-prefix: ${STORE_KEY_PREFIX:agentscope:workbench}  # 分布式键前缀（租户隔离键基址，FR-10.4）
+  observability:
+    # M5 可观测性（FR-10.5）：默认关闭，dev 零开销；开启后 Agent 构建挂载 OtelTracingMiddleware
+    enabled: ${OBSERVABILITY_ENABLED:false}
+    otlp-endpoint: ${OTLP_ENDPOINT:http://localhost:4317}
+    service-name: ${OTLP_SERVICE_NAME:agentscope-workbench}
   agents:
     - name: rnd-assistant-pro
       label: DeepSeek V4 Pro
@@ -186,6 +193,15 @@ spring:
 
 server:
   port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: always
 
 logging:
   level:

@@ -1,0 +1,31 @@
+# M5 生产化 Profile（FR-10.1~FR-10.7）
+# 用法：SPRING_PROFILES_ACTIVE=prod java -jar agent-scope-new.jar
+# Agent 定义与 dev 共用 application.yml（本文件不重复，避免 List 整体覆盖）；
+# 生产文件系统模式通过环境变量 FS_MODE 切换：REMOTE（共享存储，需 redis）/ SANDBOX（容器沙箱，需 Docker）。
+# 敏感项一律通过环境变量注入，无默认值的占位符缺失时启动即失败（强制校验）。
+workbench:
+  api-key: ${WORKBENCH_API_KEY}
+  store:
+    # 生产环境必须使用 Redis 分布式存储（FR-10.1/FR-10.2），Redis 不可达时启动即失败
+    type: redis
+    redis-url: ${REDIS_URL}
+    key-prefix: ${STORE_KEY_PREFIX:agentscope:workbench}
+  observability:
+    # OTel 链路追踪（FR-10.5）：需 OTLP Collector 在 otlp-endpoint 监听 gRPC（默认 4317）
+    enabled: ${OBSERVABILITY_ENABLED:false}
+    otlp-endpoint: ${OTLP_ENDPOINT:http://localhost:4317}
+    service-name: ${OTLP_SERVICE_NAME:agentscope-workbench}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    com.agent: INFO
+    io.agentscope: INFO

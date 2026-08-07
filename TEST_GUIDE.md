@@ -3,7 +3,7 @@
 > 适用版本：当前 main 分支（AgentScope 2.0.0 / Spring Boot 4.1）
 > 面向对象：测试工程师
 > 文档日期：2026-08-07
-> 阶段状态：**M1~M3 已验收通过**（2026-08-07，非流式/SSE 流式对话、管理面板、模型选择、HITL 待确认等全部通过；SSE 流中断已修复，见第七节）；**M4 沙箱与技能推进中**（Docker 沙箱/快照/技能市场，见第六节）
+> 阶段状态：**M1~M4 已验收通过**（2026-08-07，非流式/SSE 流式对话、管理面板、模型选择、HITL 待确认、Docker 沙箱/快照/技能市场等；SSE 流中断已修复，见第七节）；**M5 生产化已交付**（Redis 分布式存储/OTel 追踪/健康检查，见第九节）
 
 ## 一、测试入口与环境准备
 
@@ -57,7 +57,10 @@
 - `workbench.api-key`：管理 API 认证密钥（dev 为 `_default`）
 - `workbench.deepseek.api-key` / `base-url`：DeepSeek 密钥与端点（环境变量兜底）
 - `workbench.agents`：Agent 定义（name/label/model/sys-prompt/workspace/steps/filesystem/sandbox），支持 `${LLM_MODEL_PRO:...}`、`${LLM_MODEL_FLASH:...}` 环境变量覆盖模型
-- `workbench.store.type`：状态存储类型（json-file）
+- `workbench.store.type`：状态存储类型（json-file / redis / mysql 预留，FR-10.1）；未知类型启动报错
+- `workbench.store.redis-url` / `key-prefix`：Redis 连接 URL 与分布式键前缀（FR-10.2/FR-10.4）
+- `workbench.observability.*`：OTel 开关、OTLP 端点与服务名（默认关闭，FR-10.5）
+- `management.*`：健康检查端点暴露与 `show-details: always`（FR-10.6）
 
 ## 六、M4 沙箱与技能验收（需 Docker/Linux 环境）
 
@@ -106,3 +109,37 @@
 6. 会话续聊：同一用户/会话二次发送，验证上下文保留
 7. 技能：对话触发 `prd-summarizer`，确认技能注册日志
 8. M4 沙箱验收（有 Docker 的 Linux 环境）：按第六节 6.1~6.4 执行
+9. M5 生产化验收：按第九节 9.1~9.4 执行（dev 零变化 → redis 失败路径 → 健康检查 → OTel）
+
+## 九、M5 生产化验收（FR-10.1~FR-10.7）
+
+> 本阶段默认（dev）保持 json-file/LOCAL/无 OTel 零变化；redis 与 OTel 路径需按 9.2/9.4 配置后验证。
+> 本地无 Redis/Docker/WSL 环境，Redis 端到端走失败路径验证，成功路径在具备 Redis 的环境执行（与 M4 沙箱先例一致）。
+
+### 9.1 配置解析与 dev 零变化（FR-10.1）
+
+- 默认启动（dev）：`/api/v1/admin/agents` 正常、非流式 `/chat` 正常，启动日志无 redis/OTel 相关告警
+- 启动日志输出存储注入情况（json-file 时不注入 DistributedStore）
+- 未知 `workbench.store.type`（如 `mysql`）→ 启动报错并列出支持类型
+
+### 9.2 Redis 分布式存储与失败路径（FR-10.2/FR-10.3）
+
+| 场景 | 配置 | 预期行为 |
+|---|---|---|
+| redis 无 URL | `STORE_TYPE=redis`、`REDIS_URL` 空 | 启动失败，报错提示必须配置 `workbench.store.redis-url` |
+| redis 不可达 | `STORE_TYPE=redis`、`REDIS_URL=redis://localhost:6379`（本地无 Redis） | 启动失败，报错含 redis-url 与「请检查 Redis 服务状态」指引 |
+| REMOTE 无分布式存储 | `FS_MODE=REMOTE` + `STORE_TYPE=json-file` | 启动 `IllegalStateException`，报错含 Agent 名与 store 配置指引（FR-10.3） |
+| REMOTE + redis（有 Redis 环境） | `FS_MODE=REMOTE` + `STORE_TYPE=redis` | 启动成功，日志「REMOTE 文件系统已注入分布式 BaseStore」 |
+| SANDBOX 快照/守卫 | `FS_MODE=SANDBOX` + `STORE_TYPE=redis` | REMOTE 快照与并发守卫由 DistributedStore 注入（日志可见），无 store 时保持 noop + 告警 |
+
+### 9.3 健康检查（FR-10.6）
+
+- `GET /actuator/health`（无认证）→ `status: UP`，`show-details: always`
+- 详情含 `agent`（agentCount/agents/mainAgent）与 `storage`（type=json-file → UP）
+- redis 模式下 storage 含 `pong`；Redis 停止后 storage 变 DOWN 且含 error 原因
+
+### 9.4 OTel 链路追踪（FR-10.5）
+
+- `OBSERVABILITY_ENABLED=true` 启动：日志出现 Tracer 注册/tracing hook 启用与「Agent [x] 挂载 OtelTracingMiddleware」
+- 未配置 Collector 时启动不失败（exporter 异步失败仅记录日志）；配置 Collector 后对话产生 OTLP span（agent.call/model.call/tool.call）
+- 默认 `false` 时无 Tracer 注册日志、无中间件挂载（dev 零开销）

@@ -126,7 +126,8 @@ class AgentScopeWorkbenchApplicationTests {
     void testListModelsDerivesFromAgents() {
         WorkbenchProperties wp = new WorkbenchProperties(
                 "_default", "rnd-assistant-pro", "dev",
-                new WorkbenchProperties.StoreConfig("json-file", ""),
+                new WorkbenchProperties.StoreConfig("json-file", "", "agentscope:workbench"),
+                new WorkbenchProperties.ObservabilityConfig(false, "http://localhost:4317", "agentscope-workbench"),
                 List.of(
                         AgentProperties.builder()
                                 .name("rnd-assistant-pro")
@@ -151,7 +152,8 @@ class AgentScopeWorkbenchApplicationTests {
     void testListModelsLabelFallbackToModelId() {
         WorkbenchProperties wp = new WorkbenchProperties(
                 "_default", "rnd-assistant", "dev",
-                new WorkbenchProperties.StoreConfig("json-file", ""),
+                new WorkbenchProperties.StoreConfig("json-file", "", "agentscope:workbench"),
+                new WorkbenchProperties.ObservabilityConfig(false, "http://localhost:4317", "agentscope-workbench"),
                 List.of(AgentProperties.builder()
                         .name("rnd-assistant")
                         .model("deepseek:deepseek-chat")
@@ -166,7 +168,8 @@ class AgentScopeWorkbenchApplicationTests {
     void testListModelsEmptyWhenNoAgents() {
         WorkbenchProperties wp = new WorkbenchProperties(
                 "_default", "rnd-assistant", "dev",
-                new WorkbenchProperties.StoreConfig("json-file", ""),
+                new WorkbenchProperties.StoreConfig("json-file", "", "agentscope:workbench"),
+                new WorkbenchProperties.ObservabilityConfig(false, "http://localhost:4317", "agentscope-workbench"),
                 List.of());
         assertTrue(wp.listModels().isEmpty());
     }

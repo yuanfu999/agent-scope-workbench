@@ -1,6 +1,7 @@
 package com.agent.agentscopenew.agent;
 
 import com.agent.agentscopenew.config.AgentProperties;
+import com.agent.agentscopenew.config.DistributedStoreProvider;
 import com.agent.agentscopenew.config.FilesystemConfig;
 import com.agent.agentscopenew.config.SandboxConfig;
 import com.agent.agentscopenew.config.SandboxImageValidator;
@@ -8,6 +9,8 @@ import com.agent.agentscopenew.config.WorkbenchProperties;
 
 import io.agentscope.core.model.GenerateOptions;
 import io.agentscope.core.skill.repository.ClasspathSkillRepository;
+import io.agentscope.core.tracing.OtelTracingMiddleware;
+import io.agentscope.harness.agent.DistributedStore;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.agentscope.harness.agent.IsolationScope;
 import io.agentscope.harness.agent.filesystem.spec.LocalFilesystemSpec;
@@ -53,6 +56,9 @@ public final class AgentFactory {
 
     private final WorkbenchProperties workbenchConfig;
 
+    /** 分布式存储提供方（json-file 模式为 null 存储）。 */
+    private final DistributedStoreProvider storeProvider;
+
     /**
      * 根据配置构建一个 HarnessAgent。
      *
@@ -92,9 +98,20 @@ public final class AgentFactory {
                 log.info("Agent [{}] 使用本地文件系统模式", p.name());
                 break;
             case "REMOTE":
-                builder.filesystem(new RemoteFilesystemSpec()
+                RemoteFilesystemSpec remoteSpec = new RemoteFilesystemSpec()
                         .isolationScope(parseIsolationScope(fsConfig.isolationScope()))
-                        .anonymousUserId(fsConfig.anonymousUserId()));
+                        .anonymousUserId(fsConfig.anonymousUserId());
+                // FR-10.3 构建期校验：REMOTE 共享存储必须依赖分布式 BaseStore，否则拒绝启动
+                DistributedStore remoteStore = currentStore();
+                if (remoteStore != null) {
+                    remoteSpec.injectStoreIfAbsent(remoteStore.baseStore());
+                    log.info("Agent [{}] REMOTE 文件系统已注入分布式 BaseStore", p.name());
+                } else {
+                    throw new IllegalStateException("Agent [" + p.name()
+                            + "] 使用 REMOTE 文件系统，但未配置分布式存储（FR-10.3）。"
+                            + "请设置 workbench.store.type=redis 与 workbench.store.redis-url");
+                }
+                builder.filesystem(remoteSpec);
                 log.info("Agent [{}] 使用远程共享存储模式, scope={}", p.name(), fsConfig.isolationScope());
                 break;
             case "SANDBOX":
@@ -124,13 +141,25 @@ public final class AgentFactory {
                 if (sb.additionalRunArgs() != null && !sb.additionalRunArgs().isEmpty()) {
                     dockerSpec.additionalRunArgs(sb.additionalRunArgs());
                 }
-                // 快照策略（FR-3.2）：snapshotSpec 在 Docker 类上有协变重写，仍在专属方法区
-                dockerSpec.snapshotSpec(buildSnapshotSpec(sb));
+                // 快照策略（FR-3.2）：REMOTE 快照 + 分布式存储存在时交由 DistributedStore
+                // 注入 RedisSnapshotSpec，避免与显式 snapshotSpec 冲突
+                DistributedStore distributed = currentStore();
+                if (distributed != null && "REMOTE".equalsIgnoreCase(sb.snapshotType())) {
+                    log.info("Agent [{}] 沙箱 REMOTE 快照由 DistributedStore 注入 RedisSnapshotSpec", p.name());
+                } else {
+                    dockerSpec.snapshotSpec(buildSnapshotSpec(sb));
+                }
+                // 守卫（FR-3.3）：guardEnabled 且存在分布式存储时交由 DistributedStore
+                // 注入 RedisSandboxExecutionGuard；否则显式设置 noop 并告警
+                if (!(sb.guardEnabled() && distributed != null)) {
+                    dockerSpec.executionGuard(buildExecutionGuard(sb));
+                } else {
+                    log.info("Agent [{}] 沙箱并发守卫由 DistributedStore 注入 RedisSandboxExecutionGuard", p.name());
+                }
                 // 注意：isolationScope/executionGuard/workspaceProjectionEnabled/
                 // workspaceProjectionRoots 声明在基类 SandboxFilesystemSpec，
                 // 必须放在 Docker 专属方法之后，否则链式调用会退化为基类类型
-                dockerSpec.executionGuard(buildExecutionGuard(sb))
-                        .isolationScope(parseIsolationScope(fsConfig.isolationScope()))
+                dockerSpec.isolationScope(parseIsolationScope(fsConfig.isolationScope()))
                         .workspaceProjectionEnabled(sb.workspaceProjectionEnabled())
                         .workspaceProjectionRoots(sb.projectionRootsOrDefault());
                 builder.filesystem(dockerSpec);
@@ -246,6 +275,9 @@ public final class AgentFactory {
         // 分布式存储（prod 模式下）
         applyDistributedStore(builder, p);
 
+        // OTel 追踪中间件（FR-10.5）：observability.enabled=true 时挂载
+        applyOtelMiddleware(builder, p);
+
         // 构建期校验
         HarnessAgent agent = builder.build();
         log.info("Agent [{}] 构建完成, model={}, filesystem={}", p.name(), p.model(), fsConfig.mode());
@@ -330,7 +362,8 @@ public final class AgentFactory {
      * 构建沙箱快照策略（FR-3.2）。
      * <p>
      * NONE → NoopSnapshotSpec；LOCAL → LocalSnapshotSpec（快照根目录可配）；
-     * REMOTE → 暂不激活（M5 由 DistributedStore 自动注入），回退 Noop 并告警。
+     * REMOTE → 无分布式存储时回退 Noop 并告警（有分布式存储时由
+     * {@link AgentFactory#applyDistributedStore} 路径注入 RedisSnapshotSpec）。
      *
      * @param sb 沙箱配置
      * @return 快照规格
@@ -341,7 +374,7 @@ public final class AgentFactory {
             case "NONE":
                 return new NoopSnapshotSpec();
             case "REMOTE":
-                log.warn("Agent 沙箱配置了 REMOTE 快照，由 M5 DistributedStore 自动注入，当前回退 Noop");
+                log.warn("Agent 沙箱配置了 REMOTE 快照但未注入分布式存储，回退 Noop（请配置 workbench.store.type=redis）");
                 return new NoopSnapshotSpec();
             default:
                 return new LocalSnapshotSpec(sb.snapshotBasePath());
@@ -351,15 +384,15 @@ public final class AgentFactory {
     /**
      * 构建沙箱并发守卫（FR-3.3）。
      * <p>
-     * Redis 守卫由 M5 DistributedStore 自动注入；当前统一使用 noop，
-     * guardEnabled 仅作为配置位并输出告警，避免误用。
+     * 有分布式存储时守卫由 DistributedStore 注入 RedisSandboxExecutionGuard；
+     * 此处仅在无分布式存储时兜底：guardEnabled 作为配置位输出告警并返回 noop，避免误用。
      *
      * @param sb 沙箱配置
      * @return 守卫实例
      */
     private SandboxExecutionGuard buildExecutionGuard(SandboxConfig sb) {
         if (sb.guardEnabled()) {
-            log.warn("Agent 沙箱启用了并发守卫配置位，Redis 守卫由 M5 DistributedStore 注入，当前使用 noop");
+            log.warn("Agent 沙箱启用了并发守卫但未注入分布式存储，当前使用 noop（请配置 workbench.store.type=redis）");
         }
         return SandboxExecutionGuard.noop();
     }
@@ -447,22 +480,48 @@ public final class AgentFactory {
     }
 
     /**
-     * 应用分布式存储配置。
+     * 挂载 OTel 追踪中间件（FR-10.5）。
      * <p>
-     * 在 prod profile 下，根据 workbench.store.type 配置注入对应的
-     * DistributedStore。
+     * observability.enabled=true 时追加 OtelTracingMiddleware；dev 默认关闭零开销。
+     *
+     * @param builder Agent 构建器
+     * @param p       Agent 配置
+     */
+    private void applyOtelMiddleware(HarnessAgent.Builder builder, AgentProperties p) {
+        WorkbenchProperties.ObservabilityConfig observability = workbenchConfig.observability();
+        if (observability == null || !observability.enabled()) {
+            return;
+        }
+        builder.middleware(new OtelTracingMiddleware());
+        log.info("Agent [{}] 挂载 OtelTracingMiddleware（OTel 追踪）", p.name());
+    }
+
+    /**
+     * 应用分布式存储配置（FR-10.1）。
+     * <p>
+     * 根据 workbench.store.type 注入 DistributedStore（AgentStateStore / BaseStore /
+     * RedisSnapshotSpec / RedisSandboxExecutionGuard 一键注入）；json-file 模式不注入。
+     *
+     * @param builder Agent 构建器
+     * @param p       Agent 配置
      */
     private void applyDistributedStore(HarnessAgent.Builder builder, AgentProperties p) {
-        if (workbenchConfig == null) {
+        DistributedStore store = currentStore();
+        if (store == null) {
             return;
         }
-        WorkbenchProperties.StoreConfig store = workbenchConfig.store();
-        if (store == null || "json-file".equals(store.type())) {
-            // dev 模式：使用本地文件存储（默认）
-            return;
+        builder.distributedStore(store);
+        log.info("Agent [{}] 注入分布式存储（stateStore/baseStore/快照/守卫）", p.name());
+    }
+
+    /**
+     * 获取当前分布式存储实例（json-file 或未配置时为 null）。
+     */
+    private DistributedStore currentStore() {
+        if (storeProvider == null) {
+            return null;
         }
-        // 生产模式：预留扩展点，M5 里程碑实现 Redis 等分布式存储（并自动注入沙箱守卫）
-        log.info("Agent [{}] 分布式存储配置: type={} (M5 里程碑实现)", p.name(), store.type());
+        return storeProvider.get();
     }
 
     /**
