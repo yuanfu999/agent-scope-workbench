@@ -3,6 +3,7 @@ package com.agent.agentscopenew.agent;
 import com.agent.agentscopenew.config.AgentProperties;
 import com.agent.agentscopenew.config.FilesystemConfig;
 import com.agent.agentscopenew.config.SandboxConfig;
+import com.agent.agentscopenew.config.SandboxImageValidator;
 import com.agent.agentscopenew.config.WorkbenchProperties;
 
 import io.agentscope.core.model.GenerateOptions;
@@ -11,11 +12,16 @@ import io.agentscope.harness.agent.HarnessAgent;
 import io.agentscope.harness.agent.IsolationScope;
 import io.agentscope.harness.agent.filesystem.spec.LocalFilesystemSpec;
 import io.agentscope.harness.agent.filesystem.spec.RemoteFilesystemSpec;
+import io.agentscope.harness.agent.sandbox.SandboxExecutionGuard;
 import io.agentscope.harness.agent.sandbox.impl.docker.DockerFilesystemSpec;
+import io.agentscope.harness.agent.sandbox.snapshot.LocalSnapshotSpec;
+import io.agentscope.harness.agent.sandbox.snapshot.NoopSnapshotSpec;
+import io.agentscope.harness.agent.sandbox.snapshot.SandboxSnapshotSpec;
 import io.agentscope.harness.agent.memory.MemoryConfig;
 import io.agentscope.harness.agent.memory.compaction.CompactionConfig;
 import io.agentscope.harness.agent.memory.compaction.ToolResultEvictionConfig;
 import io.agentscope.harness.agent.subagent.SubagentDeclaration;
+import io.agentscope.harness.agent.tool.SkillManageConfig;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -93,15 +99,43 @@ public final class AgentFactory {
                 break;
             case "SANDBOX":
                 SandboxConfig sb = p.sandbox();
-                // 注意：isolationScope/workspaceProjectionEnabled 声明在基类 SandboxFilesystemSpec，
-                // 必须放在 Docker 专属方法之后，否则链式调用会退化为基类类型
-                builder.filesystem(new DockerFilesystemSpec()
+                // 镜像基线校验（FR-3.4）：Docker 不可达或镜像缺工具链时启动即报错
+                if (sb.checkOnStart()) {
+                    SandboxImageValidator.validate(sb.image());
+                }
+                DockerFilesystemSpec dockerSpec = new DockerFilesystemSpec()
                         .image(sb.image())
                         .memorySizeBytes(sb.memoryBytes())
-                        .cpuCount(sb.cpuCount())
+                        .cpuCount(sb.cpuCount());
+                // Docker 专属配置（FR-3.1），未配置的字段跳过（链式调用保持 Docker 类型）
+                if (sb.workspaceRoot() != null && !sb.workspaceRoot().isBlank()) {
+                    dockerSpec.workspaceRoot(sb.workspaceRoot());
+                }
+                if (sb.environment() != null && !sb.environment().isEmpty()) {
+                    dockerSpec.environment(sb.environment());
+                }
+                if (sb.exposedPorts() != null && !sb.exposedPorts().isEmpty()) {
+                    dockerSpec.exposedPorts(sb.exposedPorts().stream()
+                            .mapToInt(Integer::intValue).toArray());
+                }
+                if (sb.network() != null && !sb.network().isBlank()) {
+                    dockerSpec.network(sb.network());
+                }
+                if (sb.additionalRunArgs() != null && !sb.additionalRunArgs().isEmpty()) {
+                    dockerSpec.additionalRunArgs(sb.additionalRunArgs());
+                }
+                // 快照策略（FR-3.2）：snapshotSpec 在 Docker 类上有协变重写，仍在专属方法区
+                dockerSpec.snapshotSpec(buildSnapshotSpec(sb));
+                // 注意：isolationScope/executionGuard/workspaceProjectionEnabled/
+                // workspaceProjectionRoots 声明在基类 SandboxFilesystemSpec，
+                // 必须放在 Docker 专属方法之后，否则链式调用会退化为基类类型
+                dockerSpec.executionGuard(buildExecutionGuard(sb))
                         .isolationScope(parseIsolationScope(fsConfig.isolationScope()))
-                        .workspaceProjectionEnabled(sb.workspaceProjectionEnabled()));
-                log.info("Agent [{}] 使用 Docker 沙箱模式, image={}", p.name(), sb.image());
+                        .workspaceProjectionEnabled(sb.workspaceProjectionEnabled())
+                        .workspaceProjectionRoots(sb.projectionRootsOrDefault());
+                builder.filesystem(dockerSpec);
+                log.info("Agent [{}] 使用 Docker 沙箱模式, image={}, snapshot={}, projectionRoots={}",
+                        p.name(), sb.image(), sb.snapshotType(), sb.projectionRootsOrDefault());
                 break;
             default:
                 builder.filesystem(new LocalFilesystemSpec());
@@ -200,6 +234,12 @@ public final class AgentFactory {
         // 技能市场（按配置顺序叠加，后注册覆盖先注册）
         applySkillRepositories(builder, p);
 
+        // 技能自学闭环开关（FR-4.7）：注册 skill 管理工具（草稿/提升闸门）
+        if (p.skillManageEnabled()) {
+            builder.enableSkillManageTool(SkillManageConfig.defaults());
+            log.info("Agent [{}] 技能自学闭环已开启（skill 管理工具注册）", p.name());
+        }
+
         // 子 Agent 声明（编程式内置，按配置过滤）
         applySubagents(builder, p);
 
@@ -284,6 +324,44 @@ public final class AgentFactory {
             }
         }
         log.info("Agent [{}] 注册内置子 Agent {} 个: {}", p.name(), registered, enabled);
+    }
+
+    /**
+     * 构建沙箱快照策略（FR-3.2）。
+     * <p>
+     * NONE → NoopSnapshotSpec；LOCAL → LocalSnapshotSpec（快照根目录可配）；
+     * REMOTE → 暂不激活（M5 由 DistributedStore 自动注入），回退 Noop 并告警。
+     *
+     * @param sb 沙箱配置
+     * @return 快照规格
+     */
+    private SandboxSnapshotSpec buildSnapshotSpec(SandboxConfig sb) {
+        String type = sb.snapshotType() == null ? "LOCAL" : sb.snapshotType().toUpperCase();
+        switch (type) {
+            case "NONE":
+                return new NoopSnapshotSpec();
+            case "REMOTE":
+                log.warn("Agent 沙箱配置了 REMOTE 快照，由 M5 DistributedStore 自动注入，当前回退 Noop");
+                return new NoopSnapshotSpec();
+            default:
+                return new LocalSnapshotSpec(sb.snapshotBasePath());
+        }
+    }
+
+    /**
+     * 构建沙箱并发守卫（FR-3.3）。
+     * <p>
+     * Redis 守卫由 M5 DistributedStore 自动注入；当前统一使用 noop，
+     * guardEnabled 仅作为配置位并输出告警，避免误用。
+     *
+     * @param sb 沙箱配置
+     * @return 守卫实例
+     */
+    private SandboxExecutionGuard buildExecutionGuard(SandboxConfig sb) {
+        if (sb.guardEnabled()) {
+            log.warn("Agent 沙箱启用了并发守卫配置位，Redis 守卫由 M5 DistributedStore 注入，当前使用 noop");
+        }
+        return SandboxExecutionGuard.noop();
     }
 
     /**
@@ -383,8 +461,8 @@ public final class AgentFactory {
             // dev 模式：使用本地文件存储（默认）
             return;
         }
-        // 生产模式：预留扩展点，M3 里程碑实现 Redis 等分布式存储
-        log.info("Agent [{}] 分布式存储配置: type={} (M3 里程碑实现)", p.name(), store.type());
+        // 生产模式：预留扩展点，M5 里程碑实现 Redis 等分布式存储（并自动注入沙箱守卫）
+        log.info("Agent [{}] 分布式存储配置: type={} (M5 里程碑实现)", p.name(), store.type());
     }
 
     /**

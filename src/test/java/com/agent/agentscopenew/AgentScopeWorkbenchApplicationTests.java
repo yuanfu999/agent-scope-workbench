@@ -95,8 +95,12 @@ class AgentScopeWorkbenchApplicationTests {
 
     @Test
     void testSandboxConfigMemoryBytes() {
-        SandboxConfig sc = new SandboxConfig("ubuntu:24.04", 512, 2, "", "LOCAL", true);
+        SandboxConfig sc = SandboxConfig.defaults();
         assertEquals(512 * 1024 * 1024, sc.memoryBytes());
+        // FR-3.5：未配置投影根时使用默认四类
+        assertEquals(4, sc.projectionRootsOrDefault().size());
+        assertTrue(sc.checkOnStart());
+        assertFalse(sc.guardEnabled());
     }
 
     @Test

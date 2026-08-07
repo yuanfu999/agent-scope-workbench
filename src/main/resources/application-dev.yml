@@ -24,6 +24,18 @@ workbench:
         image: ubuntu:24.04
         memory-mb: 512
         cpu-count: 2
+        # M4 沙箱扩展（FR-3.1~FR-3.5），dev 保持 LOCAL，以下为 SANDBOX 模式生效的配置位：
+        network: ""                    # Docker 网络，空则默认（FR-3.1）
+        snapshot-type: LOCAL           # 快照策略：NONE / LOCAL / REMOTE（FR-3.2，REMOTE 由 M5 注入）
+        snapshot-base-path: .agentscope/snapshots  # LOCAL 快照根目录（FR-3.2）
+        guard-enabled: false           # 并发守卫配置位，Redis 守卫由 M5 DistributedStore 注入（FR-3.3）
+        check-on-start: true           # 启动校验 Docker 可达 + 镜像 POSIX 工具链，false 跳过（FR-3.4）
+        workspace-projection-enabled: true
+        # workspace-root: /workspace    # 容器内工作区路径（FR-3.1）
+        # exposed-ports: [8080]         # 容器暴露端口（FR-3.1）
+        # environment: {}               # 容器环境变量（FR-3.1）
+        # additional-run-args: []       # docker run 附加参数（FR-3.1）
+        # projection-roots: [AGENTS.md, skills, subagents, knowledge]  # 工作区投影根（FR-3.5）
     - name: rnd-assistant-flash
       label: DeepSeek V4 Flash
       model: ${LLM_MODEL_FLASH:deepseek:deepseek-v4-flash}
@@ -38,6 +50,18 @@ workbench:
         image: ubuntu:24.04
         memory-mb: 512
         cpu-count: 2
+        # M4 沙箱扩展（FR-3.1~FR-3.5），dev 保持 LOCAL，以下为 SANDBOX 模式生效的配置位：
+        network: ""                    # Docker 网络，空则默认（FR-3.1）
+        snapshot-type: LOCAL           # 快照策略：NONE / LOCAL / REMOTE（FR-3.2，REMOTE 由 M5 注入）
+        snapshot-base-path: .agentscope/snapshots  # LOCAL 快照根目录（FR-3.2）
+        guard-enabled: false           # 并发守卫配置位，Redis 守卫由 M5 DistributedStore 注入（FR-3.3）
+        check-on-start: true           # 启动校验 Docker 可达 + 镜像 POSIX 工具链，false 跳过（FR-3.4）
+        workspace-projection-enabled: true
+        # workspace-root: /workspace    # 容器内工作区路径（FR-3.1）
+        # exposed-ports: [8080]         # 容器暴露端口（FR-3.1）
+        # environment: {}               # 容器环境变量（FR-3.1）
+        # additional-run-args: []       # docker run 附加参数（FR-3.1）
+        # projection-roots: [AGENTS.md, skills, subagents, knowledge]  # 工作区投影根（FR-3.5）
 
 logging:
   level:

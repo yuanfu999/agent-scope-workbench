@@ -54,14 +54,24 @@ workbench:
         image: ubuntu:24.04
         memory-mb: 512
         cpu-count: 2
-        network: ""
-        snapshot-type: LOCAL
+        # M4 沙箱扩展（FR-3.1~FR-3.5）：
+        network: ""                    # Docker 网络，空则默认（FR-3.1）
+        snapshot-type: LOCAL           # 快照策略：NONE / LOCAL / REMOTE（FR-3.2，REMOTE 由 M5 注入）
+        snapshot-base-path: .agentscope/snapshots  # LOCAL 快照根目录（FR-3.2）
+        guard-enabled: false           # 并发守卫配置位，Redis 守卫由 M5 DistributedStore 注入（FR-3.3）
+        check-on-start: true           # 启动校验 Docker 可达 + 镜像 POSIX 工具链，false 跳过（FR-3.4）
         workspace-projection-enabled: true
+        # workspace-root: /workspace    # 容器内工作区路径（FR-3.1）
+        # exposed-ports: [8080]         # 容器暴露端口（FR-3.1）
+        # environment: {}               # 容器环境变量（FR-3.1）
+        # additional-run-args: []       # docker run 附加参数（FR-3.1）
+        # projection-roots: [AGENTS.md, skills, subagents, knowledge]  # 工作区投影根（FR-3.5）
       skills:
         repositories:
           - classpath
           - git
         git-url: ${SKILLS_GIT_URL:}
+        # skill-manage-enabled: false  # 技能自学闭环开关（FR-4.7）
       subagents:
         - reviewer
         - researcher
@@ -111,18 +121,64 @@ workbench:
         image: ubuntu:24.04
         memory-mb: 512
         cpu-count: 2
-        network: ""
-        snapshot-type: LOCAL
+        # M4 沙箱扩展（FR-3.1~FR-3.5）：
+        network: ""                    # Docker 网络，空则默认（FR-3.1）
+        snapshot-type: LOCAL           # 快照策略：NONE / LOCAL / REMOTE（FR-3.2，REMOTE 由 M5 注入）
+        snapshot-base-path: .agentscope/snapshots  # LOCAL 快照根目录（FR-3.2）
+        guard-enabled: false           # 并发守卫配置位，Redis 守卫由 M5 DistributedStore 注入（FR-3.3）
+        check-on-start: true           # 启动校验 Docker 可达 + 镜像 POSIX 工具链，false 跳过（FR-3.4）
         workspace-projection-enabled: true
+        # workspace-root: /workspace    # 容器内工作区路径（FR-3.1）
+        # exposed-ports: [8080]         # 容器暴露端口（FR-3.1）
+        # environment: {}               # 容器环境变量（FR-3.1）
+        # additional-run-args: []       # docker run 附加参数（FR-3.1）
+        # projection-roots: [AGENTS.md, skills, subagents, knowledge]  # 工作区投影根（FR-3.5）
       skills:
         repositories:
           - classpath
           - git
         git-url: ${SKILLS_GIT_URL:}
+        # skill-manage-enabled: false  # 技能自学闭环开关（FR-4.7）
       subagents:
         - reviewer
         - researcher
         - note-taker
+
+# ============ SANDBOX 演示 Agent（注释示例，默认不启用） ============
+# 端到端沙箱验证需在有 Docker 的 Linux 环境执行：
+#   1) 将本段复制到 workbench.agents 列表并设置 filesystem.mode: SANDBOX
+#   2) 启动前确保 `docker info` 可用且镜像 ubuntu:24.04 已拉取（或改 image）
+#   3) 启动时自动校验 Docker 可达 + 镜像含 sh/ls/cat（check-on-start，FR-3.4）
+#   4) 对话触发文件工具：容器内工作区来自投影根（AGENTS.md/skills/subagents/knowledge，FR-3.5）
+#   5) 沙箱执行后生成快照目录 .agentscope/snapshots（snapshot-type: LOCAL，FR-3.2）
+# 示例：
+# - name: sandbox-demo
+#   label: Docker 沙箱演示
+#   model: ${LLM_MODEL_PRO:deepseek:deepseek-v4-pro}
+#   sys-prompt: |
+#     你是一个在 Docker 沙箱内工作的研发助手。
+#   workspace: .agentscope/workspace
+#   steps: 30
+#   temperature: 0.7
+#   filesystem:
+#     mode: SANDBOX
+#     isolation-scope: USER
+#   sandbox:
+#     image: ubuntu:24.04
+#     memory-mb: 1024
+#     cpu-count: 2
+#     network: ""
+#     snapshot-type: LOCAL
+#     snapshot-base-path: .agentscope/snapshots
+#     guard-enabled: false
+#     check-on-start: true
+#     workspace-projection-enabled: true
+#     workspace-root: /workspace
+#     projection-roots: [AGENTS.md, skills, subagents, knowledge]
+#   skills:
+#     repositories:
+#       - classpath
+#     skill-manage-enabled: false
 
 spring:
   application:

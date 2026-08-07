@@ -48,7 +48,8 @@ public record AgentProperties(
         @DefaultValue("@{" + "}" + "") String compactionModel,
         @DefaultValue("-1") int evictionMaxResultChars,
         @DefaultValue("-1") int evictionPreviewChars,
-        @DefaultValue("") String evictionExcludedTools) {
+        @DefaultValue("") String evictionExcludedTools,
+        @DefaultValue("false") boolean skillManageEnabled) {
 
     /**
      * 获取工作区路径。
@@ -100,7 +101,7 @@ public record AgentProperties(
                 List.of("reviewer", "researcher", "note-taker"),
                 "",
                 "", "", -1, "", -1, -1, false, false,
-                -1, -1, "", null, -1, -1, "");
+                -1, -1, "", null, -1, -1, "", false);
     }
 
     /**
@@ -149,6 +150,7 @@ public record AgentProperties(
         private int evictionMaxResultChars = -1;
         private int evictionPreviewChars = -1;
         private String evictionExcludedTools = "";
+        private boolean skillManageEnabled = false;
 
         public Builder name(String name) { this.name = name; return this; }
         public Builder model(String model) { this.model = model; return this; }
@@ -179,6 +181,7 @@ public record AgentProperties(
         public Builder evictionMaxResultChars(int evictionMaxResultChars) { this.evictionMaxResultChars = evictionMaxResultChars; return this; }
         public Builder evictionPreviewChars(int evictionPreviewChars) { this.evictionPreviewChars = evictionPreviewChars; return this; }
         public Builder evictionExcludedTools(String evictionExcludedTools) { this.evictionExcludedTools = evictionExcludedTools; return this; }
+        public Builder skillManageEnabled(boolean skillManageEnabled) { this.skillManageEnabled = skillManageEnabled; return this; }
 
         public AgentProperties build() {
             return new AgentProperties(name, model, sysPrompt, workspace, steps, temperature,
@@ -191,7 +194,7 @@ public record AgentProperties(
                     memorySessionRetentionDays, disableMemoryTools, disableMemoryHooks,
                     compactionTriggerTokens, compactionKeepTokens, compactionSummaryPrompt,
                     compactionModel, evictionMaxResultChars, evictionPreviewChars,
-                    evictionExcludedTools);
+                    evictionExcludedTools, skillManageEnabled);
         }
     }
 }
